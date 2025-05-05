@@ -19,7 +19,7 @@ Our code provide two ways of teleoperation: single console and 2 consoles
 
 For single console, which is using 2MTMs controlling 1 PSM:
 ```bash
-source ~/ros2_ws/install/setup.bash
+source ～/ros2_ws/install/cisst/bin/cisstvars.sh
 cd ~/ros2_ws/src/dvrk/jhu-config-dvrk/jhu-dVRK/
 ipython3
 ```
@@ -32,7 +32,7 @@ After the alignment is compoleted, then press the Coag pedal and the teleoperati
 
 For the multilateral teleoperation on 2 consoles (one through firewire and the other through Ethernet), which is using 4MTMs controlling 2 PSMs:
 ```bash
-source ~/ros2_ws/install/setup.bash
+source ～/ros2_ws/install/cisst/bin/cisstvars.sh
 cd ~/ros2_ws/src/dvrk/jhu-config-dvrk/jhu-dVRK/
 ipython3
 ```
