@@ -1,7 +1,6 @@
 # Start dVRK console
 
 import os, sys, ctypes
-import pdb
 
 # Set RTLD_GLOBAL flag for dynamic loading (on Linux)
 try:
