@@ -14,6 +14,7 @@
 # --- end cisst license ---
 
 """For instructions, see https://dvrk.readthedocs.io, and search for \"dvrk_teleoperation\""""
+"""correct the control law"""
 
 import argparse
 # import crtk
@@ -1139,16 +1140,16 @@ class teleoperation:
 
             time.sleep(self.run_period)
 
-        numpy.savetxt('pos_l.txt', self.y_data_l, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('pos_r.txt', self.y_data_r, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('pos_l_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('pos_r_exp.txt', self.y_data_r_expected, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('m3_force.txt', self.m3_force, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('m4_force.txt', self.m4_force, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='x y z', comments='')
-        numpy.savetxt('puppet2_force.txt', self.puppet2_force, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('pos_l.txt', self.y_data_l, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('pos_r.txt', self.y_data_r, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('pos_l_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('pos_r_exp.txt', self.y_data_r_expected, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('m3_force.txt', self.m3_force, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('m4_force.txt', self.m4_force, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='x y z', comments='')
+        # numpy.savetxt('puppet2_force.txt', self.puppet2_force, fmt='%f', delimiter=' ', header='x y z', comments='')
 
         print(f"run terminated, MTML is busy: {self.master1_is_busy}")
 

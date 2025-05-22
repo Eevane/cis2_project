@@ -14,6 +14,7 @@
 # --- end cisst license ---
 
 """For instructions, see https://dvrk.readthedocs.io, and search for \"dvrk_teleoperation\""""
+"""add filter for force signal"""
 
 import argparse
 # import crtk
