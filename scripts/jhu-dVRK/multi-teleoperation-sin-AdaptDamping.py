@@ -14,7 +14,7 @@
 # --- end cisst license ---
 
 """For instructions, see https://dvrk.readthedocs.io, and search for \"dvrk_teleoperation\""""
-"""add filter for force signal"""
+"""add adaptive damping"""
 
 import argparse
 # import crtk
@@ -23,14 +23,13 @@ import math
 # import std_msgs.msg
 import sys
 import time
-from dvrk_console import *
-#from dvrk_console_multi import *
 import cisstVectorPython as cisstVector
 import pdb
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-
 from scipy.spatial.transform.rotation import Rotation
+from collections import deque
+
 
 class teleoperation:
     class State(Enum):
@@ -95,6 +94,14 @@ class teleoperation:
         self.m1_force = []
         self.m2_force = []
         self.puppet_force = []
+
+        # adaptive damping - initialization
+        self.adapt_count = 0
+        self.VelocityIsValid = False
+        window_size = int(1/self.run_period)   # current 1000 pts
+        self.pos_errorx_window = deque(maxlen=window_size)
+        self.pos_errory_window = deque(maxlen=window_size)
+        self.pos_errorz_window = deque(maxlen=window_size)
 
 
     def update(self, frames, input, time_data, y_data, line):
@@ -257,13 +264,6 @@ class teleoperation:
     def jaw_to_gripper(self, jaw_angle):
         return (jaw_angle - self.gripper_to_jaw_offset) / self.gripper_to_jaw_scale
 
-    # def check_arm_state(self):
-    #     if not self.puppet.is_homed():
-    #         print(f'ERROR: {self.ral.node_name()}: puppet ({self.puppet.name}) is not homed anymore')
-    #         self.running = False
-    #     if not self.master1.is_homed():
-    #         print(f'ERROR: {self.ral.node_name()}: master1 ({self.master1.name}) is not homed anymore')
-    #         self.running = False
 
     def enter_aligning(self):
         self.current_state = teleoperation.State.ALIGNING
@@ -441,39 +441,39 @@ class teleoperation:
         Forward Process
         '''
         # Force measurement
-        # # master1
-        # m1_measured_cf = self.master1.body.measured_cf()
-        # m1_measured_cf_force = m1_measured_cf.Force()
-        # m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1)
-        # m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
-
         # master1
-        '''Measure force from joint space'''
-        m1_measured_js = self.master1.measured_js()
-        m1_measured_jf = m1_measured_js.Effort()
-        m1_measured_jf[-4:] = 0   # turn off force from the last three axis
-        m1_body_jacobian = self.master1.body.jacobian()
-        m1_body_jacobian_trans_inv = numpy.linalg.pinv(m1_body_jacobian.T)
-        m1_measured_cf_force = m1_body_jacobian_trans_inv @ m1_measured_jf
-        m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1.0)
+        m1_measured_cf = self.master1.body.measured_cf()
+        m1_measured_cf_force = m1_measured_cf.Force()
+        m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1)
         m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
 
-        # # master2
-        # m2_measured_cf = self.master2.body.measured_cf()
-        # m2_measured_cf_force = m2_measured_cf.Force()
-        # m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1)
-        # m2_measured_cf_force[3:6] = m2_measured_cf_force[3:6] * 0 * 2
+        # # master1
+        # '''Measure force from joint space'''
+        # m1_measured_js = self.master1.measured_js()
+        # m1_measured_jf = m1_measured_js.Effort()
+        # m1_measured_jf[-4:] = 0   # turn off force from the last three axis
+        # m1_body_jacobian = self.master1.body.jacobian()
+        # m1_body_jacobian_trans_inv = numpy.linalg.pinv(m1_body_jacobian.T)
+        # m1_measured_cf_force = m1_body_jacobian_trans_inv @ m1_measured_jf
+        # m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1.0)
+        # m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
 
         # master2
-        '''Measure force from joint space'''
-        m2_measured_js = self.master2.measured_js()
-        m2_measured_jf = m2_measured_js.Effort()
-        m2_measured_jf[-4:] = 0   # turn off force from the last three axis
-        m2_body_jacobian = self.master2.body.jacobian()
-        m2_body_jacobian_trans_inv = numpy.linalg.pinv(m2_body_jacobian.T)
-        m2_measured_cf_force = m2_body_jacobian_trans_inv @ m2_measured_jf
-        m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1.0)
+        m2_measured_cf = self.master2.body.measured_cf()
+        m2_measured_cf_force = m2_measured_cf.Force()
+        m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1)
         m2_measured_cf_force[3:6] = m2_measured_cf_force[3:6] * 0 * 2
+
+        # # master2
+        # '''Measure force from joint space'''
+        # m2_measured_js = self.master2.measured_js()
+        # m2_measured_jf = m2_measured_js.Effort()
+        # m2_measured_jf[-4:] = 0   # turn off force from the last three axis
+        # m2_body_jacobian = self.master2.body.jacobian()
+        # m2_body_jacobian_trans_inv = numpy.linalg.pinv(m2_body_jacobian.T)
+        # m2_measured_cf_force = m2_body_jacobian_trans_inv @ m2_measured_jf
+        # m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1.0)
+        # m2_measured_cf_force[3:6] = m2_measured_cf_force[3:6] * 0 * 2
 
         # puppet1
         puppet_measured_cf = self.puppet.body.measured_cf()
@@ -570,7 +570,7 @@ class teleoperation:
         arg_fw.SetPositionIsValid(True)
         arg_fw.SetPosition(puppet_cartesian_goal)
         #print(f'master_cartesian_goal: {master_cartesian_goal}')
-        arg_fw.SetVelocityIsValid(True)
+        arg_fw.SetVelocityIsValid(self.VelocityIsValid)    # adaptive damping
         arg_fw.SetVelocity(vel_fw)
         #print(f'vel_cs : {vel_cs}')
         arg_fw.SetForceIsValid(True)
@@ -661,7 +661,7 @@ class teleoperation:
         arg.SetPositionIsValid(True)
         arg.SetPosition(m1_cartesian_goal)
         # print(f'master_cartesian_goal: {m1_cartesian_goal}')
-        arg.SetVelocityIsValid(True)
+        arg.SetVelocityIsValid(self.VelocityIsValid)    # adaptive damping
         arg.SetVelocity(vel_cs)
         # print(f'vel_cs : {vel_cs}')
         arg.SetForceIsValid(True)
@@ -677,7 +677,7 @@ class teleoperation:
         arg2 = self.master2.servo_cs.GetArgumentPrototype()
         arg2.SetPositionIsValid(True)
         arg2.SetPosition(m2_cartesian_goal)
-        arg2.SetVelocityIsValid(True)
+        arg2.SetVelocityIsValid(self.VelocityIsValid)    # adaptive damping
         arg2.SetVelocity(vel_cs)
         arg2.SetForceIsValid(True)
         arg2.SetForce(puppet_measured_cf_force_2)
@@ -687,7 +687,6 @@ class teleoperation:
         m2_measured_cf_plot = self.master2.body.measured_cf()
         m2_measured_force_plot = m2_measured_cf_plot.Force()
         m2_measured_force_plot = m2_measured_force_plot[0:3] * (-1)
-
 
         
         '''
@@ -706,31 +705,43 @@ class teleoperation:
         self.puppet_force.append(puppet_measured_force_plot_cat)
         self.a += 1
 
+        """" adaptive damping - update pos windows """
+        error = puppet_measured_trans_plot - puppet_translation
+        self.pos_errorx_window.append(error[0])
+        self.pos_errory_window.append(error[1])
+        self.pos_errorz_window.append(error[2])
+
+
+    # adaptive damping - detection function
+    def switch_damping(self):
+        pos_error = numpy.array([
+            self.pos_errorx_window, 
+            self.pos_errory_window, 
+            self.pos_errorz_window])    # shape(3, window_size)
+        rmse = numpy.sqrt(numpy.mean((pos_error)**2, axis=1)) * 1000   # change to mm unit
+        if all(rmse < 0.5):
+            self.VelocityIsValid = False
+        else:
+            self.VelocityIsValid = True
+
+
 
     def run(self):
-        #pdb.set_trace()
         homed_successfully = console.home()
         time.sleep(15)
-        # plotting
-        self.fig, self.ax = plt.subplots()
-        line, = self.ax.plot([], [], lw=2)
+
         print("home complete")
         if not homed_successfully:
             print("home not success")
             return
 
-        
-        #teleop_rate = self.ral.create_rate(int(1/self.run_period))
-        # print("Running teleop at {} Hz".format(int(1/self.run_period)))
-        freq = int(1/self.run_period)
-
         self.enter_aligning()
         print("aligned complete")
-        self.running = True
+        self.running = True       
 
-        #while not self.ral.is_shutdown():
-        #while True:
-        while self.a <=6000:
+
+        while True:
+        # while self.a <=6000:
             # check if teleop state should transition
             if self.current_state == teleoperation.State.ALIGNING:
                 print("current state transit aligning")
@@ -761,52 +772,22 @@ class teleoperation:
             else:
                 raise RuntimeError("Invalid state: {}".format(self.current_state))
             
-            self.master1_op_state = self.master1.operating_state()
-            self.master1_is_busy = self.master1_op_state.GetIsBusy()
 
-            print(f"master1_is_busy : {self.master1_is_busy}")
+            # adaptive damping - check once per second
+            if self.adapt_count >= int(1/self.run_period):
+                self.switch_damping()
+                self.adapt_count = 0
+            self.adapt_count += 1
 
             time.sleep(self.run_period)
 
-        numpy.savetxt('array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('m1_force_0520.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('m2_force_0520.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('puppet_force_0520.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        print(f"run terminated, MTML is busy: {self.master1_is_busy}")
+        # numpy.savetxt('array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('m1_force_0520.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('m2_force_0520.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('puppet_force_0520.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # print(f"run terminated, MTML is busy: {self.master1_is_busy}")
 
-'''class MTM:
-    def __init__(self, arm_name, timeout):
-        self.name = arm_name
-
-        # non-CRTK topics
-        # self.lock_orientation_pub = self.ral.publisher('lock_orientation',
-        #                                                 geometry_msgs.msg.Quaternion,
-        #                                                 latch = True, queue_size = 1)
-        # self.unlock_orientation_pub = self.ral.publisher('unlock_orientation',
-        #                                                  std_msgs.msg.Empty,
-        #                                                  latch = True, queue_size = 1)
-        # self.use_gravity_compensation_pub = self.ral.publisher('use_gravity_compensation',
-        #                                                         std_msgs.msg.Bool,
-        #                                                         latch = True, queue_size = 1)
-
-    def lock_orientation(self, orientation):
-        """orientation should be a PyKDL.Rotation object"""
-        q = geometry_msgs.msg.Quaternion()
-        q.x, q.y, q.z, q.w = orientation.GetQuaternion()
-        # self.lock_orientation_pub.publish(q)
-
-    def unlock_orientation(self):
-        self.unlock_orientation_pub.publish(std_msgs.msg.Empty())
-
-    def use_gravity_compensation(self, gravity_compensation):
-        """Turn on/off gravity compensation (only applies to Cartesian effort mode)"""
-        msg = std_msgs.msg.Bool(data=gravity_compensation)
-        # self.use_gravity_compensation_pub.publish(msg)
-
-class PSM:
-    def __init__(self, arm_name, timeout):
-        self.name = arm_name'''
 
 if __name__ == '__main__':
     # parse arguments
@@ -825,13 +806,9 @@ if __name__ == '__main__':
                          help = 'dominance factor beta, between 0 and 1')
     args = parser.parse_args()
 
-    # ral = crtk.ral('dvrk_python_teleoperation')
     from dvrk_console import *
-    # console.power_on()
-    #pdb.set_trace()
     mtm1 = MTML
     mtm2 = MTMR
-    #mtm2 = MTML2
     psm = PSM1
 
     clutch = Clutch
