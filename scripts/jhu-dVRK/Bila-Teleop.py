@@ -343,7 +343,7 @@ class teleoperation:
         # master
         measured_cf = self.master.body.measured_cf()
         measured_cf_force = measured_cf.Force()
-        measured_cf_force[0:3] = measured_cf_force[0:3] * (-1)
+        measured_cf_force[0:3] = measured_cf_force[0:3] * (-1.0)
         measured_cf_force[3:6] = measured_cf_force[3:6] * 0 * 2
 
         # '''Measure force from joint space'''
@@ -360,7 +360,7 @@ class teleoperation:
         # puppet1
         puppet_measured_cf = self.puppet.body.measured_cf()
         puppet_measured_cf_force = puppet_measured_cf.Force()
-        puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3] * 1.0
+        puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3] * (-1.0)
         puppet_measured_cf_force[3:6] = puppet_measured_cf_force[3:6] * 0 * 2
 
 
@@ -514,7 +514,7 @@ class teleoperation:
         # measure master1 force for plot
         m1_measured_cf_plot = self.master.body.measured_cf()
         m1_measured_force_plot = m1_measured_cf_plot.Force()
-        m1_measured_force_plot = m1_measured_force_plot[0:3] * (-1)
+        m1_measured_force_plot = m1_measured_force_plot[0:3] * (1)
 
         # '''
         # plot
@@ -562,15 +562,15 @@ class teleoperation:
             print("home not success")
             return
 
-        initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
-        arg_initial = self.puppet.move_jp.GetArgumentPrototype()
-        arg_initial.SetGoal(initial_position)
-        self.puppet.move_jp(arg_initial)
-        time.sleep(3)
+        # initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
+        # arg_initial = self.puppet.move_jp.GetArgumentPrototype()
+        # arg_initial.SetGoal(initial_position)
+        # self.puppet.move_jp(arg_initial)
+        # time.sleep(3)
 
-        puppet_measured_cp = self.puppet.measured_cp()
-        puppet_measured_pos = puppet_measured_cp.Position()
-        self.puppet_measured_rot_fixed = puppet_measured_pos.GetRotation()
+        # puppet_measured_cp = self.puppet.measured_cp()
+        # puppet_measured_pos = puppet_measured_cp.Position()
+        # self.puppet_measured_rot_fixed = puppet_measured_pos.GetRotation()
 
         self.enter_aligning()
         print("aligned complete")
@@ -597,7 +597,7 @@ class teleoperation:
 
         #while not self.ral.is_shutdown():
         # while True:
-        while self.a <=36000:
+        while self.a <=18000:
             # check if teleop state should transition
             if self.current_state == teleoperation.State.ALIGNING:
                 #print("current state transit aligning")
@@ -631,11 +631,11 @@ class teleoperation:
             time.sleep(self.run_period)
 
 
-        numpy.savetxt('bi_array_0603.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('bi_array_exp_0603.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('bi_m1_force_0603.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('bi_puppet_force_0603.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        print(f"run terminated, MTML is busy: {self.master1_is_busy}")
+        numpy.savetxt('bi_array_0605_1.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('bi_array_exp_0605_1.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('bi_m1_force_0605_1.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('bi_puppet_force_0605_1.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        print(f"Program finished!")
 
 if __name__ == '__main__':
     # extract ros arguments (e.g. __ns:= for namespace)
