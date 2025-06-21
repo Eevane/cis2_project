@@ -32,8 +32,6 @@ import matplotlib.animation as animation
 
 from scipy.spatial.transform.rotation import Rotation
 
-<<<<<<< HEAD
-=======
 
 '''Low Pass Filter'''
 class LowPassFilter:
@@ -49,7 +47,6 @@ class LowPassFilter:
 
 
 
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 class teleoperation:
     class State(Enum):
         ALIGNING = 1
@@ -57,12 +54,9 @@ class teleoperation:
         FOLLOWING = 3
 
     def __init__(self, mtml1, mtml2, psm2, clutch, coag, alpha, beta, clutch_topic, run_period, align_mtm, operator_present_topic = ""):
-<<<<<<< HEAD
-=======
         self.force_filter = LowPassFilter(alpha=0.1, dim=6)
         self.velocity_filter = LowPassFilter(alpha=0.2, dim=3)
         self.puppet_velocity_filter = LowPassFilter(alpha=0.2, dim=3)
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
         # print('Initialzing dvrk_teleoperation for {} and {}'.format(master1.name, puppet.name))
         print(f"running at {1/run_period} frequency")
         self.run_period = run_period
@@ -83,11 +77,7 @@ class teleoperation:
         self.master1_op_state = self.master1.operating_state()
         self.master1_is_busy = True
 
-<<<<<<< HEAD
-        self.scale = 0.1
-=======
         self.scale = 0.2
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
         self.gripper_max = 60 * math.pi / 180
         self.gripper_zero = 0.0 # Set to e.g. 20 degrees if gripper cannot close past zero
@@ -298,13 +288,8 @@ class teleoperation:
         self.last_align = None
         self.last_operator_prompt = time.perf_counter()
 
-<<<<<<< HEAD
-        self.master1.use_gravity_compensation(True)
-        self.master2.use_gravity_compensation(True)
-=======
         # self.master1.use_gravity_compensation(True)
         # self.master2.use_gravity_compensation(True)
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
         self.puppet.hold()
 
         # reset operator activity data in case operator is inactive
@@ -459,13 +444,8 @@ class teleoperation:
         #     self.running = False
         self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint[0])# convert 1-D array to scalar
 
-<<<<<<< HEAD
-        self.master1.use_gravity_compensation(True)
-        self.master2.use_gravity_compensation(True)
-=======
         # self.master1.use_gravity_compensation(True)
         # self.master2.use_gravity_compensation(True)
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
     def transition_following(self):
         if not self.coag.GetButton():
@@ -479,45 +459,40 @@ class teleoperation:
         Forward Process
         '''
         # Force measurement
-<<<<<<< HEAD
-        # master1
-        m1_measured_cf = self.master1.body.measured_cf()
-        m1_measured_cf_force = m1_measured_cf.Force()
-        m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1)
-        m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
-
         # # master1
-        # '''Measure force from joint space'''
-        # m1_measured_js = self.master1.measured_js()
-        # m1_measured_jf = m1_measured_js.Effort()
-        # m1_measured_jf[-4:] = 0   # turn off force from the last four axis
-=======
-        # # master1
-        m1_measured_cf = self.master1.body.measured_cf()
-        m1_measured_cf_force = m1_measured_cf.Force()
-        m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1.0)
-        m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
+        # m1_measured_cf = self.master1.body.measured_cf()
+        # m1_measured_cf_force = m1_measured_cf.Force()
+        # m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1)
+        # m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
 
         # master1
         '''Measure force from joint space'''
-        # m1_measured_js = self.master1.measured_js()
-        # m1_measured_jf = m1_measured_js.Effort()
-        # m1_measured_jf[-4:] = 0   # turn off force from the last three axis
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
-        # m1_body_jacobian = self.master1.body.jacobian()
-        # m1_body_jacobian_trans_inv = numpy.linalg.pinv(m1_body_jacobian.T)
-        # m1_measured_cf_force = m1_body_jacobian_trans_inv @ m1_measured_jf
-        # m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1.0)
-        # m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
-<<<<<<< HEAD
+        m1_measured_js = self.master1.measured_js()
+        m1_measured_jf = m1_measured_js.Effort()
+        m1_measured_jf[-4:] = 0   # turn off force from the last three axis
+        m1_body_jacobian = self.master1.body.jacobian()
+        m1_body_jacobian_trans_inv = numpy.linalg.pinv(m1_body_jacobian.T)
+        m1_measured_cf_force = m1_body_jacobian_trans_inv @ m1_measured_jf
+        m1_measured_cf_force[0:3] = m1_measured_cf_force[0:3] * (-1.0)
+        m1_measured_cf_force[3:6] = m1_measured_cf_force[3:6] * 0 * 2
+        # m1_measured_cf_force = self.force_filter.update(m1_measured_cf_force)
+        # # master2
+        # m2_measured_cf = self.master2.body.measured_cf()
+        # m2_measured_cf_force = m2_measured_cf.Force()
+        # m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1)
+        # m2_measured_cf_force[3:6] = m2_measured_cf_force[3:6] * 0 * 2
 
         # master2
-        m2_measured_cf = self.master2.body.measured_cf()
-        m2_measured_cf_force = m2_measured_cf.Force()
-        m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1)
+        '''Measure force from joint space'''
+        m2_measured_js = self.master2.measured_js()
+        m2_measured_jf = m2_measured_js.Effort()
+        m2_measured_jf[-4:] = 0   # turn off force from the last three axis
+        m2_body_jacobian = self.master2.body.jacobian()
+        m2_body_jacobian_trans_inv = numpy.linalg.pinv(m2_body_jacobian.T)
+        m2_measured_cf_force = m2_body_jacobian_trans_inv @ m2_measured_jf
+        m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1.0)
         m2_measured_cf_force[3:6] = m2_measured_cf_force[3:6] * 0 * 2
-
-<<<<<<<< HEAD:scripts/jhu-dVRK/multi-teleoperation-sin-TurnoffWrist-Cartesian.py
+        # m2_measured_cf_force = self.force_filter.update(m2_measured_cf_force)
         # # puppet1
         # puppet_measured_cf = self.puppet.body.measured_cf()
         # puppet_measured_cf_force = puppet_measured_cf.Force()
@@ -532,74 +507,12 @@ class teleoperation:
         puppet_body_jacobian = self.puppet.body.jacobian()
         puppet_body_jacobian_trans_inv = numpy.linalg.pinv(puppet_body_jacobian.T)
         puppet_measured_cf_force = puppet_body_jacobian_trans_inv @ puppet_measured_jf
-        puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3] 
-========
-        # # master2
-        # '''Measure force from joint space'''
-        # m2_measured_js = self.master2.measured_js()
-        # m2_measured_jf = m2_measured_js.Effort()
-        # m2_measured_jf[-4:] = 0   # turn off force from the last four axis
-=======
-        # m1_measured_cf_force = self.force_filter.update(m1_measured_cf_force)
-        # # master2
-        m2_measured_cf = self.master2.body.measured_cf()
-        m2_measured_cf_force = m2_measured_cf.Force()
-        m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1.0)
-        m2_measured_cf_force[3:6] = m2_measured_cf_force[3:6] * 0 * 2
-
-        # master2
-        '''Measure force from joint space'''
-        # m2_measured_js = self.master2.measured_js()
-        # m2_measured_jf = m2_measured_js.Effort()
-        # m2_measured_jf[-4:] = 0   # turn off force from the last three axis
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
-        # m2_body_jacobian = self.master2.body.jacobian()
-        # m2_body_jacobian_trans_inv = numpy.linalg.pinv(m2_body_jacobian.T)
-        # m2_measured_cf_force = m2_body_jacobian_trans_inv @ m2_measured_jf
-        # m2_measured_cf_force[0:3] = m2_measured_cf_force[0:3] * (-1.0)
-        # m2_measured_cf_force[3:6] = m2_measured_cf_force[3:6] * 0 * 2
-<<<<<<< HEAD
-
-        # puppet1
-        puppet_measured_cf = self.puppet.body.measured_cf()
-        puppet_measured_cf_force = puppet_measured_cf.Force()
-        puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3]
->>>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85:scripts/jhu-dVRK/multi-teleoperation-sin-mod.py
+        puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3] * (-1.0)
         puppet_measured_cf_force[3:6] = puppet_measured_cf_force[3:6] * 0 * 2
-
-        # '''Measure force from joint space'''
-=======
-        # m2_measured_cf_force = self.force_filter.update(m2_measured_cf_force)
-        # # puppet1
-        puppet_measured_cf = self.puppet.body.measured_cf()
-        puppet_measured_cf_force = puppet_measured_cf.Force()
-        puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3] * 1.0
-        puppet_measured_cf_force[3:6] = puppet_measured_cf_force[3:6] * 0 * 2
-
-        # puppet1
-        '''Measure force from joint space'''
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
-        # puppet_measured_js = self.puppet.measured_js()
-        # puppet_measured_jf = puppet_measured_js.Effort()
-        # puppet_measured_jf[-3:] = 0   # turn off force from the last four axis
-        # puppet_body_jacobian = self.puppet.body.jacobian()
-        # puppet_body_jacobian_trans_inv = numpy.linalg.pinv(puppet_body_jacobian.T)
-        # puppet_measured_cf_force = puppet_body_jacobian_trans_inv @ puppet_measured_jf
-<<<<<<< HEAD
-        # puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3] 
-        # puppet_measured_cf_force[3:6] = puppet_measured_cf_force[3:6] * 0 * 2
-
-        # force input of the control law
-        beta = self.beta
-        force_input = 0.2 * (beta * m1_measured_cf_force + (1-beta) * m2_measured_cf_force + puppet_measured_cf_force)
-=======
-        # puppet_measured_cf_force[0:3] = puppet_measured_cf_force[0:3] * (-1.0)
-        # puppet_measured_cf_force[3:6] = puppet_measured_cf_force[3:6] * 0 * 2
         # puppet_measured_cf_force = self.force_filter.update(puppet_measured_cf_force)
         # force input of the control law
         beta = self.beta
         force_input = 0.2* ( beta * m1_measured_cf_force + (1-beta) * m2_measured_cf_force + puppet_measured_cf_force )
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
 
         # Position measurement
@@ -649,35 +562,20 @@ class teleoperation:
         master_2_puppet_rotation = master_2_rotation1 @ master_2_alignment_offset
 
         # # average rotation
-<<<<<<< HEAD
         # puppet_rotation = self.average_rotation(numpy.array([master_1_puppet_rotation,master_2_puppet_rotation]), alpha)
         # print(f"puppet_rotation : {puppet_rotation}")
-=======
-        puppet_rotation = self.average_rotation(numpy.array([master_1_puppet_rotation,master_2_puppet_rotation]), alpha)
-        print(f"puppet_rotation : {puppet_rotation}")
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
 
 
         ##################### use PSM rotation to control PSM
-<<<<<<< HEAD
         puppet_measured_cp_fw = self.puppet.measured_cp()
         puppet_measured_pos_fw = puppet_measured_cp_fw.Position()
         puppet_measured_rot_fw = puppet_measured_pos_fw.GetRotation()
 
         # average rotation
-        puppet_rotation = puppet_measured_rot_fw
+        # puppet_rotation = puppet_measured_rot_fw
+        puppet_rotation = self.puppet_measured_rot_fixed
         print(f"puppet_rotation : {puppet_rotation}")
-=======
-        # puppet_measured_cp_fw = self.puppet.measured_cp()
-        # puppet_measured_pos_fw = puppet_measured_cp_fw.Position()
-        # puppet_measured_rot_fw = puppet_measured_pos_fw.GetRotation()
-
-        # # average rotation
-        # # puppet_rotation = puppet_measured_rot_fw
-        # puppet_rotation = self.puppet_measured_rot_fixed
-        # print(f"puppet_rotation : {puppet_rotation}")
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
         #####################
 
 
@@ -692,28 +590,16 @@ class teleoperation:
         # velocity from master1
         master_1_measured_cv = self.master1.measured_cv()
         master_1_linear_vel = master_1_measured_cv.VelocityLinear()
-<<<<<<< HEAD
-        master_1_linear_vel = self.scale * master_1_linear_vel
-        master_1_angular_vel = master_1_measured_cv.VelocityAngular()
-        master_1_angular_vel = master_1_angular_vel * 0.0
-=======
         master_1_linear_vel = self.velocity_filter.update(master_1_linear_vel)
         master_1_linear_vel = self.scale * master_1_linear_vel
         master_1_angular_vel = master_1_measured_cv.VelocityAngular()
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
         # velocity from master2
         master_2_measured_cv = self.master2.measured_cv()
         master_2_linear_vel = master_2_measured_cv.VelocityLinear()
-<<<<<<< HEAD
-        master_2_linear_vel = self.scale * master_2_linear_vel
-        master_2_angular_vel = master_2_measured_cv.VelocityAngular()
-        master_2_angular_vel = master_2_angular_vel * 0.0
-=======
         master_2_linear_vel = self.velocity_filter.update(master_2_linear_vel)
         master_2_linear_vel = self.scale * master_2_linear_vel
         master_2_angular_vel = master_2_measured_cv.VelocityAngular()
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
         # average velocity
         linear_vel_fw = (master_1_linear_vel + master_2_linear_vel) / 2.0
@@ -783,14 +669,13 @@ class teleoperation:
         m1_translation_cs = master_relative_translation + self.master_1_cartesian_initial.GetTranslation()
         m2_translation_cs = master_relative_translation + self.master_2_cartesian_initial.GetTranslation()
 
-<<<<<<< HEAD
-        # # relative rot
+        # # # relative rot
         # m1_rotation_cs = puppet_measured_rot @ numpy.linalg.inv(master_1_alignment_offset)
         # m2_rotation_cs = puppet_measured_rot @ numpy.linalg.inv(master_2_alignment_offset)
 
 
 
-        ##################### use MTM1/MTM2 rotation to control MTM1/MTM2
+        # ##################### use MTM1/MTM2 rotation to control MTM1/MTM2
         m1_measured_cp_bw = self.master1.measured_cp()
         m2_measured_cp_bw = self.master2.measured_cp()
         master_1_position_bw = m1_measured_cp_bw.Position()
@@ -801,33 +686,10 @@ class teleoperation:
 
         m1_rotation_cs = master_1_rotation_bw
         m2_rotation_cs = master_2_rotation_bw
-        # average rotation
-        puppet_rotation = puppet_measured_rot_fw
-        print(f"puppet_rotation : {puppet_rotation}")
-        #####################
-=======
-        # # # relative rot
-        m1_rotation_cs = puppet_measured_rot @ numpy.linalg.inv(master_1_alignment_offset)
-        m2_rotation_cs = puppet_measured_rot @ numpy.linalg.inv(master_2_alignment_offset)
-
-
-
-        # ##################### use MTM1/MTM2 rotation to control MTM1/MTM2
-        # m1_measured_cp_bw = self.master1.measured_cp()
-        # m2_measured_cp_bw = self.master2.measured_cp()
-        # master_1_position_bw = m1_measured_cp_bw.Position()
-        # master_2_position_bw = m2_measured_cp_bw.Position()
-
-        # master_1_rotation_bw = master_1_position_bw.GetRotation()
-        # master_2_rotation_bw = master_2_position_bw.GetRotation()
-
-        # m1_rotation_cs = master_1_rotation_bw
-        # m2_rotation_cs = master_2_rotation_bw
         
         # m1_rotation_cs = self.master_1_rotation1_fixed 
         # m2_rotation_cs = self.master_2_rotation1_fixed
         # # #####################
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
 
 
@@ -846,24 +708,12 @@ class teleoperation:
         # Velocity measurement (only measure puppet's)
         puppet_measured_cv = self.puppet.measured_cv()
         linear_vel_cs = puppet_measured_cv.VelocityLinear()
-<<<<<<< HEAD
-        linear_vel_cs = (1/self.scale) * linear_vel_cs
-        angular_vel_cs = puppet_measured_cv.VelocityAngular()
-<<<<<<<< HEAD:scripts/jhu-dVRK/multi-teleoperation-sin-TurnoffWrist-Cartesian.py
-
-        angular_vel_cs = angular_vel_cs  * 0.0   # zero angular velocity
-        
-========
-        angular_vel_cs = angular_vel_cs * 0.0
->>>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85:scripts/jhu-dVRK/multi-teleoperation-sin-mod.py
-=======
         linear_vel_cs = self.puppet_velocity_filter.update(linear_vel_cs)
         linear_vel_cs = (1/self.scale) * linear_vel_cs * 1.0
         angular_vel_cs = puppet_measured_cv.VelocityAngular()
 
         angular_vel_cs = angular_vel_cs  * 0.0   # zero angular velocity
         
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
         vel_cs = numpy.hstack((linear_vel_cs, angular_vel_cs))
 
 
@@ -898,11 +748,7 @@ class teleoperation:
         arg2.SetForce(puppet_measured_cf_force_2)
         self.master2.servo_cs(arg2)
 
-<<<<<<< HEAD
-        # measure master1 force for plot
-=======
         # measure master2 force for plot
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
         m2_measured_cf_plot = self.master2.body.measured_cf()
         m2_measured_force_plot = m2_measured_cf_plot.Force()
         m2_measured_force_plot = m2_measured_force_plot[0:3] * (-1)
@@ -912,20 +758,6 @@ class teleoperation:
         # '''
         # plot
         # '''
-<<<<<<< HEAD
-        # puppet_measured_cp_plot = self.puppet.measured_cp()
-        # puppet_measured_pos_plot = puppet_measured_cp_plot.Position()
-        # puppet_measured_trans_plot = puppet_measured_pos_plot.GetTranslation()
-
-        # self.y_data_l.append(puppet_measured_trans_plot)
-        # self.y_data_l_expected.append(puppet_translation)
-
-        # self.m1_force.append(m1_measured_force_plot)
-        # self.m2_force.append(m2_measured_force_plot)
-
-        # self.puppet_force.append(puppet_measured_force_plot_cat)
-        # self.a += 1
-=======
         puppet_measured_cp_plot = self.puppet.measured_cp()
         puppet_measured_pos_plot = puppet_measured_cp_plot.Position()
         puppet_measured_trans_plot = puppet_measured_pos_plot.GetTranslation()
@@ -938,51 +770,12 @@ class teleoperation:
 
         self.puppet_force.append(puppet_measured_force_plot_cat)
         self.a += 1
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
 
     def run(self):
         #pdb.set_trace()
         homed_successfully = console.home()
         time.sleep(15)
-<<<<<<< HEAD
-<<<<<<<< HEAD:scripts/jhu-dVRK/multi-teleoperation-sin-TurnoffWrist-Cartesian.py
-        
-        initial_position = numpy.array([0, 0, 0.15, 0, 0, 0])
-        arg_initial = self.puppet.move_jp.GetArgumentPrototype()
-        arg_initial.SetGoal(initial_position)
-        self.puppet.move_jp(arg_initial)
-        time.sleep(self.run_period)
-========
-        print("home complete")
-        if not homed_successfully:
-            print("home not success")
-            return
->>>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85:scripts/jhu-dVRK/multi-teleoperation-sin-mod.py
-
-        # initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
-        # arg_initial = self.puppet.move_jp.GetArgumentPrototype()
-        # arg_initial.SetGoal(initial_position)
-        # self.puppet.move_jp(arg_initial)
-        # time.sleep(3)
-
-        puppet_measured_cp = self.puppet.measured_cp()
-        puppet_measured_pos = puppet_measured_cp.Position()
-        self.puppet_measured_rot_fixed = puppet_measured_pos.GetRotation()
-
-        # # master1
-        # m1_lock_cp = self.master1.measured_cp()
-        # m1_lock_pos = m1_lock_cp.Position()
-        # m1_lock_rot = m1_lock_pos.GetRotation()
-        # self.master1.lock_orientation(m1_lock_rot)
-
-        # # master2
-        # m2_lock_cp = self.master2.measured_cp()
-        # m2_lock_pos = m2_lock_cp.Position()
-        # m2_lock_rot = m2_lock_pos.GetRotation()
-        # self.master2.lock_orientation(m2_lock_rot)
-
-=======
         
         # initial_position = numpy.array([0, 0, 0.15, 0, 0, 0])
         # arg_initial = self.puppet.move_jp.GetArgumentPrototype()
@@ -1001,21 +794,10 @@ class teleoperation:
         # print("Running teleop at {} Hz".format(int(1/self.run_period)))
         freq = int(1/self.run_period)
         
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
         self.enter_aligning()
         print("aligned complete")
         self.running = True
 
-<<<<<<< HEAD
-        #while not self.ral.is_shutdown():
-<<<<<<<< HEAD:scripts/jhu-dVRK/multi-teleoperation-sin-TurnoffWrist-Cartesian.py
-        while True:
-        # while self.a <=6000:
-========
-        # while True:
-        while self.a <=18000:
->>>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85:scripts/jhu-dVRK/multi-teleoperation-sin-mod.py
-=======
 
         m1_measured_cp = self.master1.measured_cp()
         m2_measured_cp = self.master2.measured_cp()
@@ -1035,7 +817,6 @@ class teleoperation:
         #while not self.ral.is_shutdown():
         # while True:
         while self.a <=18000:
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
             # check if teleop state should transition
             if self.current_state == teleoperation.State.ALIGNING:
                 print("current state transit aligning")
@@ -1073,30 +854,12 @@ class teleoperation:
 
             time.sleep(self.run_period)
 
-<<<<<<< HEAD
-<<<<<<<< HEAD:scripts/jhu-dVRK/multi-teleoperation-sin-TurnoffWrist-Cartesian.py
-        # numpy.savetxt('array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('m1_force_0520.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('m2_force_0520.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('puppet_force_0520.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # print(f"run terminated, MTML is busy: {self.master1_is_busy}")
-========
-        numpy.savetxt('multi_array_0603.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('multi_array_exp_0603.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('multi_m1_force_0603.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('multi_m2_force_0603.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        numpy.savetxt('multi_puppet_force_0603.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        print(f"run terminated, MTML is busy: {self.master1_is_busy}")
->>>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85:scripts/jhu-dVRK/multi-teleoperation-sin-mod.py
-=======
         numpy.savetxt('multi_array_0605.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
         numpy.savetxt('multi_array_exp_0605.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
         numpy.savetxt('multi_m1_force_0605.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
         numpy.savetxt('multi_m2_force_0605.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
         numpy.savetxt('multi_puppet_force_0605.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
         print(f"run terminated, MTML is busy: {self.master1_is_busy}")
->>>>>>> 5b257ea13e035b7bbbd8bd67395fb17643e22a85
 
 
 if __name__ == '__main__':
