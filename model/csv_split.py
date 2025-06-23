@@ -36,10 +36,10 @@ def split_csv_by_column(input_path, output_dir, entities, keywords, common_colum
 
 if __name__ == "__main__":
     dataset_root = "../../Dataset/"
-    output_path = ["train_0620", "testing_0620"]
-    input_path  = ["3286583.708339442-joint_data.csv",
-                   "3288280.803231152-joint_data.csv"]
-    entities = ['master1', 'master2', 'puppet']
+    output_path = ["train_0620"]
+    input_path  = ["MTML_PSM1_0622.csv"]
+#                   "3288280.803231152-joint_data.csv"]
+    entities = ['master', 'puppet']
     keywords = ['q', 'dq', 'tau']
     common_columns = ['timestamp']
     
