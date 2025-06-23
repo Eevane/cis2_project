@@ -6,35 +6,55 @@ import pandas as pd
 import time
 
 # Dataloader
-class JointDataset(Dataset):
-    def __init__(self, file_path,seq_len):
-        self.inputs = []
-        self.targets = []
-        # read file
-        df = pd.read_csv(file_path)
-        inputs = df.iloc[:, 2:8].values.astype('float32')   # shape: (N, 6)
-        targets = df.iloc[:, 8:].values.astype('float32')   # shape: (N, 3)
+import torch
+from torch.utils.data import Dataset
+import pandas as pd
+import numpy as np
 
-        # normalize
-        self.input_mean = inputs.mean(axis=0)
-        self.input_std = inputs.std(axis=0) + 1e-8  
+class JointDataset(Dataset):
+    def __init__(self, file_path, seq_len=5, mode='train', split_ratio=0.7, mean=None, std=None):
+        self.seq_len = seq_len
+        assert mode in ['train', 'test'], "mode should be 'train' or 'test'"
+
+        # 1. 读取数据
+        df = pd.read_csv(file_path)
+        inputs = df.iloc[:, 2:8].values.astype('float32')   # (N, 6)
+        targets = df.iloc[:, 8:].values.astype('float32')   # (N, 3)
+
+        # 2. 统一划分 train/test（按时间顺序划分，不打乱）
+        total_len = len(inputs)
+        split_index = int(total_len * split_ratio)
+        if mode == 'train':
+            inputs = inputs[:split_index]
+            targets = targets[:split_index]
+        else:
+            inputs = inputs[split_index - seq_len + 1:]  # 向前补 seq_len-1 保证滑窗连续
+            targets = targets[split_index - seq_len + 1:]
+
+        # 3. 标准化（使用训练集参数 or 当前计算）
+        if mean is None or std is None:
+            self.input_mean = inputs.mean(axis=0)
+            self.input_std = inputs.std(axis=0) + 1e-8
+        else:
+            self.input_mean = mean
+            self.input_std = std
         inputs = (inputs - self.input_mean) / self.input_std
 
-        # slide window
+        # 4. 构造滑动窗口
         self.inputs = []
         self.targets = []
         for i in range(len(inputs) - seq_len + 1):
             input_seq = inputs[i:i+seq_len]           # shape: (seq_len, 6)
             target_val = targets[i+seq_len-1]         # shape: (3,)
-            self.inputs.append(torch.tensor(input_seq))
-            self.targets.append(torch.tensor(target_val))
-
+            self.inputs.append(torch.tensor(input_seq, dtype=torch.float32))
+            self.targets.append(torch.tensor(target_val, dtype=torch.float32))
 
     def __len__(self):
         return len(self.inputs)
 
     def __getitem__(self, idx):
         return self.inputs[idx], self.targets[idx]
+
 
 
 # model
@@ -46,7 +66,7 @@ class JointLSTMModel(nn.Module):
         self.fc2 = nn.Sequential(nn.Linear(256, 128), nn.LayerNorm(128), nn.ReLU(True))
         self.fc3 = nn.Sequential(nn.Linear(128, 64), nn.LayerNorm(64), nn.ReLU(True))
         self.regression = nn.Linear(64, output_size)
-        self.dropout = nn.Dropout(0.15)
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
         #print("x shape:", x.shape)
@@ -113,8 +133,8 @@ def train(model, training_dataloader, testing_dataloader, optimizer, criterion, 
 
 
 if __name__ == "__main__":
-    training_file_path = "../../Dataset/train_0620/puppet-FirstThreeJoints.csv"
-    testing_file_path = "../../Dataset/testing_0620/puppet-FirstThreeJoints.csv"
+    training_file_path = "../../Dataset/train_0620/master-FirstThreeJoints.csv"
+    #testing_file_path = "../../Dataset/testing_0620/master1-FirstThreeJoints.csv"
     output_path = "training_results/"
 
     if not os.path.exists(output_path):
@@ -123,13 +143,14 @@ if __name__ == "__main__":
     batch_size = 64
     lr = 1e-4
     num_epochs = 100
-    seq_len= 5
+    seq_len= 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    training_dataset = JointDataset(training_file_path,seq_len=seq_len)
-    training_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
+    training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train')
+    mean, std = training_dataset.input_mean, training_dataset.input_std
+    testing_dataset = JointDataset(training_file_path, seq_len=seq_len, mode='test', mean=mean, std=std)
 
-    testing_dataset = JointDataset(testing_file_path,seq_len=seq_len)
+    training_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     testing_dataloader = DataLoader(testing_dataset, batch_size=batch_size, shuffle=False)
 
     model = JointLSTMModel()
