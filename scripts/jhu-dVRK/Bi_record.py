@@ -84,14 +84,14 @@ class teleoperation:
         self.recording_enabled = False
 
 
-        self.joint_min = math.radians(-15)
-        self.joint_max = math.radians(15)
-        self.joint_step = math.radians(0.5)
-        self.joint_targets = None
-        self.joint_directions = [1] * 6 
-        self.active_joint_index = 0      
+        self.move_xyz = PyKDL.Vector(0.0, 0.0, 0.0)
+        self.move_direction = [1, 1, 1] 
+        self.move_index = 0  
+        self.move_step = 0.005  
+        self.move_max = 0.1  
         self.last_step_time = time.time()
-        self.step_interval = 0.1
+        self.step_interval = 0.05 
+
 
          
     # callback for operator pedal/button
@@ -330,6 +330,35 @@ class teleoperation:
         puppet_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
         master_velocity_goal = puppet_measured_cv.tolist()
 
+
+        if self.recording_enabled:
+            now = time.time()
+            if now - self.last_step_time >= self.step_interval:
+                # 0 = x, 1 = y, 2 = z
+                i = self.move_index
+                if i == 0:
+                    self.move_xyz[0] += self.move_direction[0] * self.move_step
+                    if abs(self.move_xyz[0]) > self.move_max:
+                        self.move_xyz[0] = self.move_direction[0] * self.move_max
+                        self.move_direction[0] *= -1
+                        self.move_index = 1  # y
+                elif i == 1:
+                    self.move_xyz[1] += self.move_direction[1] * self.move_step
+                    if abs(self.move_xyz[1]) > self.move_max:
+                        self.move_xyz[1] = self.move_direction[1] * self.move_max
+                        self.move_direction[1] *= -1
+                        self.move_index = 2  # z
+                elif i == 2:
+                    self.move_xyz[2] += self.move_direction[2] * self.move_step
+                    if abs(self.move_xyz[2]) > self.move_max:
+                        self.move_xyz[2] = self.move_direction[2] * self.move_max
+                        self.move_direction[2] *= -1
+                        self.move_index = 0  # x
+
+                self.last_step_time = now
+
+            master_cartesian_goal.p += self.move_xyz
+
         # Move
         self.master.servo_cs(master_cartesian_goal, master_velocity_goal, force_goal)
 
@@ -366,33 +395,6 @@ class teleoperation:
                     self.header_written = True
 
                 writer.writerow(row)
-
-                now = time.time()
-
-        if self.recording_enabled:
-            now = time.time()
-            if not self.joint_targets:
-                self.joint_targets = numpy.copy(self.master.setpoint_jp()[0])
-
-            if now - self.last_step_time >= self.step_interval:
-                current_joint = self.active_joint_index  
-
-                self.joint_targets[current_joint] += self.joint_directions[current_joint] * self.joint_step
-
-                if self.joint_targets[current_joint] > self.joint_max:
-                    self.joint_targets[current_joint] = self.joint_max
-                    self.joint_directions[current_joint] = -1
-                elif self.joint_targets[current_joint] < self.joint_min:
-                    self.joint_targets[current_joint] = self.joint_min
-                    self.joint_directions[current_joint] = 1
-
-                self.master.move_jp(self.joint_targets)
-                print(f"[AutoScan] Moving joint {current_joint} to {math.degrees(self.joint_targets[current_joint]):.2f}°")
-
-                self.active_joint_index = (self.active_joint_index + 1) % 6
-
-                self.last_step_time = now
-
 
 
 
