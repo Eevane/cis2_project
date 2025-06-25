@@ -14,7 +14,7 @@
 # --- end cisst license ---
 
 """ Multilateral teleoperation single console - ROS2 version """
-# modified by Xiangyi Le
+""" Hub structure """
 
 import argparse
 import crtk
@@ -307,8 +307,8 @@ class teleoperation:
         puppet_measured_cf[3:6] *= 0
 
         # force input
-        #### add gamma?
-        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + puppet_measured_cf)
+        gamma = 0.2
+        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
         force_goal = force_goal.tolist()
 
 

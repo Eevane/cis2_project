@@ -14,7 +14,6 @@
 # --- end cisst license ---
 
 """ Multilateral teleoperation single console - ROS2 version """
-# modified by Xiangyi Le
 
 import argparse
 import crtk
