@@ -26,8 +26,6 @@ import PyKDL
 import std_msgs.msg
 import sys
 import time
-import torch
-import onnx
 import onnxruntime
 
 class teleoperation:
@@ -121,6 +119,12 @@ class teleoperation:
     # compute relative orientation of mtm2 and psm
     def alignment_offset_master2(self):
         return self.master2.measured_cp()[0].M.Inverse() * self.puppet.setpoint_cp()[0].M
+    
+    ######################################################################################
+    # compute relative orientation of mtm1 and mtm2
+    def alignment_offset_master1_to_master2(self):
+        return self.master1.measured_cp()[0].M.Inverse() * self.master2.measured_cp()[0].M
+    ######################################################################################
 
     # set relative origins for clutching and alignment offset
     def update_initial_state(self):
@@ -130,8 +134,11 @@ class teleoperation:
 
         self.alignment_offset_initial_master1 = self.alignment_offset_master1()
         self.alignment_offset_initial_master2 = self.alignment_offset_master2()
+        self.alignment_offset_initial_masters = self.alignment_offset_master1_to_master2()
+
         self.master1_offset_angle, self.master1_offset_axis = self.alignment_offset_initial_master1.GetRotAngle()
         self.master2_offset_angle, self.master2_offset_axis = self.alignment_offset_initial_master2.GetRotAngle()
+        self.masters_offset_angle, self.masters_offset_axis = self.alignment_offset_initial_masters.GetRotAngle()
 
     def gripper_to_jaw(self, gripper_angle):
         jaw_angle = self.gripper_to_jaw_scale * gripper_angle + self.gripper_to_jaw_offset
@@ -175,9 +182,15 @@ class teleoperation:
 
         master1_orientation_error, _ = self.alignment_offset_master1().GetRotAngle()
         master2_orientation_error, _ = self.alignment_offset_master2().GetRotAngle()
-        aligned = master1_orientation_error <= self.operator_orientation_tolerance and master2_orientation_error <= self.operator_orientation_tolerance
+        # aligned = master1_orientation_error <= self.operator_orientation_tolerance or master2_orientation_error <= self.operator_orientation_tolerance
+        aligned = master1_orientation_error <= self.operator_orientation_tolerance
+        print(f"master1_orientation_error is {master1_orientation_error}")
+        # aligned = True
+        print(f"aligned {aligned}")
+        print(f"operator_is_active {self.operator_is_active}")
         if aligned and self.operator_is_active:
             self.enter_following()
+            print("enter following")
 
     def run_aligning(self):
         master1_orientation_error, _ = self.alignment_offset_master1().GetRotAngle()
@@ -188,9 +201,14 @@ class teleoperation:
             master1_gripper = self.master1.gripper.measured_js()[0][0]
             master2_gripper = self.master2.gripper.measured_js()[0][0]
             
-            master1_gripper_range = max(master1_gripper, self.operator_gripper_max) - min(master1_gripper, self.operator_gripper_min)
-            master2_gripper_range = max(master2_gripper, self.operator_gripper_max) - min(master2_gripper, self.operator_gripper_min)
-            if master1_gripper_range >= self.operator_gripper_threshold or master2_gripper_range >= self.operator_gripper_threshold:
+            self.operator_gripper_max = max(master1_gripper, self.operator_gripper_max)
+            self.operator_gripper_min = min(master1_gripper, self.operator_gripper_min)
+            master1_gripper_range = self.operator_gripper_max - self.operator_gripper_min
+            # master1_gripper_range = max(master1_gripper, self.operator_gripper_max) - min(master1_gripper, self.operator_gripper_min)
+            # master2_gripper_range = max(master2_gripper, self.operator_gripper_max) - min(master2_gripper, self.operator_gripper_min)
+            # if master1_gripper_range >= self.operator_gripper_threshold or master2_gripper_range >= self.operator_gripper_threshold:
+            print(f"master1_gripper_range {master1_gripper_range}")
+            if master1_gripper_range >= self.operator_gripper_threshold:
                 self.operator_is_active = True
 
             # determine amount of roll around z axis by rotation of y-axis
@@ -201,9 +219,14 @@ class teleoperation:
             roll_1 = math.acos(PyKDL.dot(puppet_y_axis, master1_y_axis))
             roll_2 = math.acos(PyKDL.dot(puppet_y_axis, master2_y_axis))
 
-            master1_roll_range = max(roll_1, self.operator_roll_max) - min(roll_1, self.operator_roll_min)
-            master2_roll_range = max(roll_2, self.operator_roll_max) - min(roll_2, self.operator_roll_min)
-            if master1_roll_range >= self.operator_roll_threshold or master2_roll_range >= self.operator_roll_threshold:
+            self.operator_roll_max = max(roll_1, self.operator_roll_max)
+            self.operator_roll_min = min(roll_1, self.operator_roll_min)
+            master1_roll_range = self.operator_roll_max - self.operator_roll_min
+            # master1_roll_range = max(roll_1, self.operator_roll_max) - min(roll_1, self.operator_roll_min)
+            # master2_roll_range = max(roll_2, self.operator_roll_max) - min(roll_2, self.operator_roll_min)
+            # if master1_roll_range >= self.operator_roll_threshold or master2_roll_range >= self.operator_roll_threshold:
+            print(f"master1_roll_range {master1_roll_range}")
+            if master1_roll_range >= self.operator_roll_threshold:
                 self.operator_is_active = True
 
         # periodically send move_cp to MTM to align with PSM
@@ -285,6 +308,8 @@ class teleoperation:
         # normalize input
         first_input = numpy.concatenate((q[0:3], dq[0:3]))
         last_input = numpy.concatenate((q[3:6], dq[3:6]))
+        # print(f"input mean is: {component.firstmodel.input_mean}")
+        # print(f"input std is: {component.firstmodel.input_std}")
         first_input = (first_input - component.firstmodel.input_mean) / component.firstmodel.input_std
         last_input = (last_input - component.lastmodel.input_mean) / component.lastmodel.input_std
 
@@ -304,13 +329,17 @@ class teleoperation:
         torque_Joint1_3 = torque_Joint1_3 * component.firstmodel.target_std + component.firstmodel.target_mean
         torque_Joint4_6 = torque_Joint4_6 * component.lastmodel.target_std + component.lastmodel.target_mean
 
-        internal_torque = numpy.concatenate((torque_Joint1_3, torque_Joint4_6))
-        external_torque = total_torque - internal_torque
+        internal_torque = numpy.hstack((torque_Joint1_3, torque_Joint4_6))
+        external_torque = (total_torque - internal_torque)
+        print(f"measured gripper joint torque is: {measured_js[2][6]}")
 
         # convert to cartesian force
-        """J = component.body.jacobian()
-        # external_force = numpy.linalg.pinv(J.T) @ external_torque
-        return external_force"""
+        external_torque = numpy.concatenate((external_torque, numpy.array([[measured_js[2][6]]])), axis=1)
+        print(f"external torque shape: {external_torque.T.shape}")
+        J = component.body.jacobian()   # shape (6,7)
+        print(f"Jacobian: {J}")
+        external_force = numpy.linalg.pinv(J.T) @ external_torque.T
+        return external_force
 
 
     def run_following(self):               
@@ -319,17 +348,17 @@ class teleoperation:
         """
         # Force channel
         # master1
-        master1_external_f = self.externalforce_prediction(self, self.master1)   # (6,) numpy array
+        master1_external_f = self.externalforce_prediction(self.master1)   # (6,) numpy array
         master1_external_f[0:3] *= -1.0
         master1_external_f[3:6] *= 0   # turn off torque
 
         # master2
-        master2_external_f = self.externalforce_prediction(self, self.master2)   # (6,) numpy array
+        master2_external_f = self.externalforce_prediction(self.master2)   # (6,) numpy array
         master2_external_f[0:3] *= -1.0
         master2_external_f[3:6] *= 0  # turn off torque
 
         # puppet
-        puppet_external_f = self.externalforce_prediction(self, self.puppet)   # (6,) numpy array
+        puppet_external_f = self.externalforce_prediction(self.puppet)   # (6,) numpy array
         puppet_external_f[0:3] *= -1.0
         puppet_external_f[3:6] *= 0
 
@@ -535,11 +564,12 @@ class teleoperation:
 
 class MTM:
             
-    class ServoMeasCF:
+    class Body:
         def __init__(self, ral, timeout):
             self.utils = crtk.utils(self, ral, timeout)
             self.utils.add_servo_cf()
             self.utils.add_measured_cf()
+            self.utils.add_jacobian()
 
     class Gripper:
         def __init__(self, ral, timeout):
@@ -576,7 +606,7 @@ class MTM:
             self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
 
         self.gripper = self.Gripper(self.ral.create_child('gripper'), timeout)
-        self.body = self.ServoMeasCF(self.ral.create_child('body'), timeout)
+        self.body = self.Body(self.ral.create_child('body'), timeout)
 
         # non-CRTK topics
         self.lock_orientation_pub = self.ral.publisher('lock_orientation',
@@ -604,10 +634,12 @@ class MTM:
         self.use_gravity_compensation_pub.publish(msg)
 
 class PSM:
-    class MeasureCF:
+    class Body:
         def __init__(self, ral, timeout):
             self.utils = crtk.utils(self, ral, timeout)
             self.utils.add_measured_cf()
+            self.utils.add_jacobian()
+
     class MeasuredCP:
         def __init__(self,ral,timeout):
             self.utils = crtk.utils(self,ral,timeout)
@@ -649,7 +681,7 @@ class PSM:
         if lastjoints_onnxpath is not None and lastjoints_parampath is not None:
             self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
 
-        self.body = self.MeasureCF(self.ral.create_child('body'), timeout)
+        self.body = self.Body(self.ral.create_child('body'), timeout)
         self.local = self.MeasuredCP(self.ral.create_child('local'),timeout)
         self.jaw = self.Jaw(self.ral.create_child('jaw'), timeout)
 
@@ -679,9 +711,15 @@ if __name__ == '__main__':
     args = parser.parse_args(argv)
 
     ral = crtk.ral('dvrk_python_teleoperation')
-    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None)
-    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None)
-    psm = PSM(ral, args.psm, timeout=20*args.interval, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None)
+    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval, firstjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master1-first.onnx", 
+               firstjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz", lastjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master1-last.onnx", 
+               lastjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz")
+    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval, firstjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master2-first.onnx", 
+               firstjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz", lastjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master2-last.onnx", 
+               lastjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz")
+    psm = PSM(ral, args.psm, timeout=20*args.interval, firstjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/puppet-first.onnx", 
+              firstjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz", lastjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/puppet-last.onnx", 
+              lastjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz")
     application = teleoperation(ral, mtm1, mtm2, psm, args.clutch, args.interval,
                                 not args.no_mtm_alignment, operator_present_topic = args.operator, alpha = 0.5, beta = 0.5)
      

@@ -250,7 +250,7 @@ class teleoperation:
         #### add gamma?
         force_goal = 0.2 * (master_measured_cf + puppet_measured_cf)
         force_goal = force_goal.tolist()
-        print(force_goal)
+        # print(force_goal)
 
 
         # Position measurement
@@ -278,7 +278,7 @@ class teleoperation:
         master_measured_cv[0:3] *= self.velocity_scale      # scale the linear velocity
         master_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
         puppet_velocity_goal = master_measured_cv.tolist()
-        print(puppet_velocity_goal)
+        # print(puppet_velocity_goal)
 
 
         # Move
@@ -505,9 +505,9 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--psm', type = str, required = True,
                         choices = ['PSM1', 'PSM2', 'PSM3'],
                         help = 'PSM arm name corresponding to ROS topics without namespace. Use __ns:= to specify the namespace')
-    parser.add_argument('-c', '--clutch', type = str, default='/console_1/clutch',
+    parser.add_argument('-c', '--clutch', type = str, default='/footpedals/clutch',
                         help = 'ROS topic corresponding to clutch button/pedal input')
-    parser.add_argument('-o', '--operator', type = str, default='/console_1/operator_present', const=None, nargs='?',
+    parser.add_argument('-o', '--operator', type = str, default='/footpedals/coag', const=None, nargs='?',
                         help = 'ROS topic corresponding to operator present button/pedal/sensor input - use "-o" without an argument to disable')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")

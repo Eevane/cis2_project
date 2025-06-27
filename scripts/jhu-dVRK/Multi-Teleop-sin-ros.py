@@ -62,9 +62,11 @@ class teleoperation:
         self.align_rate = 0.25 * math.pi if self.can_align_mtm else 0.0
 
         # don't require alignment before beginning teleop if mtm wrist can't be actuated
-        self.operator_orientation_tolerance = 5 * math.pi / 180 if self.can_align_mtm else math.pi
+        self.operator_orientation_tolerance = 90 * math.pi / 180 if self.can_align_mtm else math.pi
         self.operator_gripper_threshold = 5 * math.pi / 180
+        self.operator_gripper_threshold = 1 * math.pi / 180
         self.operator_roll_threshold = 3 * math.pi / 180
+        self.operator_roll_threshold = 1 * math.pi / 180
 
         self.gripper_to_jaw_scale = self.jaw_max / (self.gripper_max - self.gripper_zero)
         self.gripper_to_jaw_offset = -self.gripper_zero * self.gripper_to_jaw_scale
@@ -185,9 +187,15 @@ class teleoperation:
 
         master1_orientation_error, _ = self.alignment_offset_master1().GetRotAngle()
         master2_orientation_error, _ = self.alignment_offset_master2().GetRotAngle()
-        aligned = master1_orientation_error <= self.operator_orientation_tolerance and master2_orientation_error <= self.operator_orientation_tolerance
+        # aligned = master1_orientation_error <= self.operator_orientation_tolerance or master2_orientation_error <= self.operator_orientation_tolerance
+        aligned = master1_orientation_error <= self.operator_orientation_tolerance
+        print(f"master1_orientation_error is {master1_orientation_error}")
+        # aligned = True
+        print(f"aligned {aligned}")
+        print(f"operator_is_active {self.operator_is_active}")
         if aligned and self.operator_is_active:
             self.enter_following()
+            print("enter following")
 
     def run_aligning(self):
         master1_orientation_error, _ = self.alignment_offset_master1().GetRotAngle()
@@ -198,9 +206,14 @@ class teleoperation:
             master1_gripper = self.master1.gripper.measured_js()[0][0]
             master2_gripper = self.master2.gripper.measured_js()[0][0]
             
-            master1_gripper_range = max(master1_gripper, self.operator_gripper_max) - min(master1_gripper, self.operator_gripper_min)
-            master2_gripper_range = max(master2_gripper, self.operator_gripper_max) - min(master2_gripper, self.operator_gripper_min)
-            if master1_gripper_range >= self.operator_gripper_threshold or master2_gripper_range >= self.operator_gripper_threshold:
+            self.operator_gripper_max = max(master1_gripper, self.operator_gripper_max)
+            self.operator_gripper_min = min(master1_gripper, self.operator_gripper_min)
+            master1_gripper_range = self.operator_gripper_max - self.operator_gripper_min
+            # master1_gripper_range = max(master1_gripper, self.operator_gripper_max) - min(master1_gripper, self.operator_gripper_min)
+            # master2_gripper_range = max(master2_gripper, self.operator_gripper_max) - min(master2_gripper, self.operator_gripper_min)
+            # if master1_gripper_range >= self.operator_gripper_threshold or master2_gripper_range >= self.operator_gripper_threshold:
+            print(f"master1_gripper_range {master1_gripper_range}")
+            if master1_gripper_range >= self.operator_gripper_threshold:
                 self.operator_is_active = True
 
             # determine amount of roll around z axis by rotation of y-axis
@@ -211,9 +224,14 @@ class teleoperation:
             roll_1 = math.acos(PyKDL.dot(puppet_y_axis, master1_y_axis))
             roll_2 = math.acos(PyKDL.dot(puppet_y_axis, master2_y_axis))
 
-            master1_roll_range = max(roll_1, self.operator_roll_max) - min(roll_1, self.operator_roll_min)
-            master2_roll_range = max(roll_2, self.operator_roll_max) - min(roll_2, self.operator_roll_min)
-            if master1_roll_range >= self.operator_roll_threshold or master2_roll_range >= self.operator_roll_threshold:
+            self.operator_roll_max = max(roll_1, self.operator_roll_max)
+            self.operator_roll_min = min(roll_1, self.operator_roll_min)
+            master1_roll_range = self.operator_roll_max - self.operator_roll_min
+            # master1_roll_range = max(roll_1, self.operator_roll_max) - min(roll_1, self.operator_roll_min)
+            # master2_roll_range = max(roll_2, self.operator_roll_max) - min(roll_2, self.operator_roll_min)
+            # if master1_roll_range >= self.operator_roll_threshold or master2_roll_range >= self.operator_roll_threshold:
+            print(f"master1_roll_range {master1_roll_range}")
+            if master1_roll_range >= self.operator_roll_threshold:
                 self.operator_is_active = True
 
         # periodically send move_cp to MTM to align with PSM
@@ -255,15 +273,15 @@ class teleoperation:
 
     def run_clutched(self):
         # let arm move freely
-        wrench = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        self.master1.body.servo_cf(wrench)
-        self.master2.body.servo_cf(wrench)
-        self.master1.lock_orientation(self.master1.measured_cp()[0].M)
-        self.master2.lock_orientation(self.master2.measured_cp()[0].M)
+        # wrench = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # self.master1.body.servo_cf(wrench)
+        # self.master2.body.servo_cf(wrench)
+        # self.master1.lock_orientation(self.master1.measured_cp()[0].M)
+        # self.master2.lock_orientation(self.master2.measured_cp()[0].M)
 
-        self.puppet.hold()
+        # self.puppet.hold()
 
-        #pass
+        pass
 
     def enter_following(self):
         self.current_state = teleoperation.State.FOLLOWING
@@ -307,8 +325,8 @@ class teleoperation:
         puppet_measured_cf[3:6] *= 0
 
         # force input
-        #### add gamma?
-        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + puppet_measured_cf)
+        gamma = 1.0
+        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
         force_goal = force_goal.tolist()
 
 
@@ -414,7 +432,11 @@ class teleoperation:
 
         # Move
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
+        # time.sleep(0.005)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
+
+        print(f"puppet measured cf is {puppet_measured_cf}")
+        print("")
 
 
         # """

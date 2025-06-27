@@ -77,23 +77,36 @@ class teleoperation:
         self.clutch_button = crtk.joystick_button(ral, clutch_topic)
         self.clutch_button.set_callback(self.on_clutch)
 
+        # for plotting -- don't need now since ROS has plotjuggler
+        # self.a = 0
+        # self.time_data = []
+        # self.y_data_l = []
+        # self.y_data_l_expected = []
+        # self.m1_force = []
+        # self.m2_force = []
+        # self.puppet_force = []
 
         """For recording"""
         self.header_written = False # put it in teleoperation_init
-        self.start_time = time.time()
+        # self.header_written = True # put it in teleoperation_init
+        self.start_time = time.monotonic()
         self.recording_enabled = False
-
+        self.record_size = 0
 
         self.move_xyz = PyKDL.Vector(0.0, 0.0, 0.0)
         self.move_direction = [1, 1, 1] 
         self.move_index = 0  
-        self.move_step = 0.005  
-        self.move_max = 0.1  
+        self.move_step = 0.0001 
+        self.move_max_x = 0.001
+        self.move_max_y = 0.002
+        self.move_max_z = 0.002 
+        self.move_min_y = -0.12
+        
         self.last_step_time = time.time()
-        self.step_interval = 0.05 
+        self.step_counts = 25
+        self.current_counts = 0
 
 
-         
     # callback for operator pedal/button
     def on_operator_present(self, present):
         self.operator_is_present = present
@@ -137,7 +150,7 @@ class teleoperation:
         self.last_align = None
         self.last_operator_prompt = time.perf_counter()
 
-        self.master.use_gravity_compensation(True)
+        self.master.use_gravity_compensation(False)
         self.puppet.hold()
 
         # reset operator activity data in case operator is inactive
@@ -232,7 +245,7 @@ class teleoperation:
             self.running = False
         self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint[0])
 
-        self.master.use_gravity_compensation(True)
+        self.master.use_gravity_compensation(False)
 
     def transition_following(self):
         if not self.operator_is_present:
@@ -252,14 +265,14 @@ class teleoperation:
 
         # puppet
         puppet_measured_cf = self.puppet.body.measured_cf()[0]
-        puppet_measured_cf[0:3] *= -1.0
+        puppet_measured_cf[0:3] *= +1.0
         puppet_measured_cf[3:6] *= 0
 
         # force input
         #### add gamma?
         force_goal = 0.2 * (master_measured_cf + puppet_measured_cf)
         force_goal = force_goal.tolist()
-        print(force_goal)
+        # print(force_goal)
 
 
         # Position measurement
@@ -287,7 +300,7 @@ class teleoperation:
         master_measured_cv[0:3] *= self.velocity_scale      # scale the linear velocity
         master_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
         puppet_velocity_goal = master_measured_cv.tolist()
-        print(puppet_velocity_goal)
+        # print(puppet_velocity_goal)
 
 
         # Move
@@ -332,47 +345,74 @@ class teleoperation:
 
 
         if self.recording_enabled:
-            now = time.time()
-            if now - self.last_step_time >= self.step_interval:
+            if self.current_counts >= self.step_counts:
                 # 0 = x, 1 = y, 2 = z
                 i = self.move_index
                 if i == 0:
+                    print("X move!")
                     self.move_xyz[0] += self.move_direction[0] * self.move_step
-                    if abs(self.move_xyz[0]) > self.move_max:
-                        self.move_xyz[0] = self.move_direction[0] * self.move_max
+                    if abs(self.move_xyz[0]) > self.move_max_x:
+                        print("Reach max range of X.")
                         self.move_direction[0] *= -1
-                        self.move_index = 1  # y
+                        self.move_xyz[0] = self.move_direction[0] * self.move_max
+                    self.move_index = 1  # y
+                        
                 elif i == 1:
+                    print("Y move!")
                     self.move_xyz[1] += self.move_direction[1] * self.move_step
-                    if abs(self.move_xyz[1]) > self.move_max:
-                        self.move_xyz[1] = self.move_direction[1] * self.move_max
+                    if abs(self.move_xyz[1]) > self.move_max_y:
+                        print("Reach max range of Y.")
                         self.move_direction[1] *= -1
-                        self.move_index = 2  # z
+                        self.move_xyz[1] = self.move_direction[1] * self.move_max
+                    self.move_index = 2  # z
                 elif i == 2:
+                    print("Z move!")
                     self.move_xyz[2] += self.move_direction[2] * self.move_step
-                    if abs(self.move_xyz[2]) > self.move_max:
-                        self.move_xyz[2] = self.move_direction[2] * self.move_max
+                    if abs(self.move_xyz[2]) > self.move_max_z:
+                        print("Reach max range of Z.")
                         self.move_direction[2] *= -1
-                        self.move_index = 0  # x
+                        self.move_xyz[2] = self.move_direction[2] * self.move_max
+                    self.move_index = 0  # x
 
-                self.last_step_time = now
+                self.current_counts = 0
+            else:
+                self.current_counts += 1
 
             master_cartesian_goal.p += self.move_xyz
-
         # Move
         self.master.servo_cs(master_cartesian_goal, master_velocity_goal, force_goal)
 
+
+        # """
+        # plot
+        # """
+        # self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
+        # self.y_data_l_expected.append([puppet_position.p.x(), puppet_position.p.y(), puppet_position.p.z()])
+        # self.m1_force.append(master_measured_cf)
+        # self.puppet_force.append(puppet_measured_cf)
+        # self.a += 1
+
         '''For recording'''
-        if not self.recording_enabled and time.time() - self.start_time >= 5.0:
+        current_time = time.monotonic()
+        print(f"recording enabled: {self.recording_enabled}")
+        if not self.recording_enabled and float(current_time - self.start_time) >= 10.0:
             print("Start recording joint data")
             self.recording_enabled = True
 
-        if self.recording_enabled and (time.time() - self.start_time) >= 1200:
+        if self.recording_enabled and self.record_size >= 10000:
             print("Auto stopping: 20 minutes reached.")
+            # time.strftime("%Y-%m-%d %H:%M:%S", current_time)
+            # time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
+            print(f"start_time: {self.start_time}")
+            print(f"end_time: {current_time}")
             self.recording_enabled = False
+            self.running = False
 
         if self.recording_enabled:
-            with open("joint_data.csv", "a", newline='') as f:
+            with open(f"/home/pshao7/dvrk_python_devel/{self.start_time}-joint_data.csv", "a", newline='') as f:
+            # with open(f"/home/pshao7/dvrk_python_devel/MTMR_PSM1_0622_test.csv", "a", newline='') as f:
+                self.record_size += 1
+                print("Recording data.")
                 writer = csv.writer(f)
 
                 timestamp = time.time()
@@ -390,14 +430,11 @@ class teleoperation:
                 row = [timestamp] + master_q + master_dq + master_torque + puppet_q + puppet_dq + puppet_torque
 
                 if not self.header_written:
-                    headers = ['timestamp'] + [f'master_q{i}' for i in range(6)] + [f'master_dq{i}' for i in range(6)] + [f'master_tau{i}' for i in range(6)] + [f'puppet_q{i}' for i in range(6)]  + [f'puppet_dq{i}' for i in range(6)]  + [f'puppet_tau{i}' for i in range(6)]
+                    headers = ['timestamp'] + [f'master_q{i}' for i in range(6)] + [f'master_dq{i}' for i in range(6)] + [f'master_tau{i}' for i in range(6)]  + [f'puppet_q{i}' for i in range(6)]  + [f'puppet_dq{i}' for i in range(6)]  + [f'puppet_tau{i}' for i in range(6)]
                     writer.writerow(headers)
                     self.header_written = True
 
                 writer.writerow(row)
-
-
-
     def home(self):
         print("Homing arms...")
         timeout = 10.0 # seconds
@@ -419,9 +456,8 @@ class teleoperation:
             print("home not success")
             return
         
-        """for auto moving"""
-        puppet_initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
-        self.puppet.move_jp(puppet_initial_position)
+        # puppet_initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
+        # self.puppet.move_jp(puppet_initial_position)
 
         teleop_rate = self.ral.create_rate(int(1/self.run_period))
         print("Running teleop at {} Hz".format(int(1/self.run_period)))
@@ -492,10 +528,7 @@ class MTM:
         self.utils.add_setpoint_cp()
         self.utils.add_move_cp()
         self.utils.add_servo_cs()
-
-        '''For auto moving'''
-        self.utils.add_move_jp()
-        self.utils.add_setpoint_jp()
+        self.utils.add_measured_js()
 
         self.gripper = self.Gripper(self.ral.create_child('gripper'), timeout)
         self.body = self.ServoMeasCF(self.ral.create_child('body'), timeout)
@@ -553,6 +586,7 @@ class PSM:
         self.utils.add_measured_cv()
         self.utils.add_move_jp()
         self.utils.add_measured_cp()
+        self.utils.add_measured_js()
 
         self.body = self.MeasureCF(self.ral.create_child('body'), timeout)
         self.local = self.MeasuredCP(self.ral.create_child('local'),timeout)

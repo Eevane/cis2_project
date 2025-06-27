@@ -65,7 +65,7 @@ class teleoperation:
         self.gripper_to_jaw_scale = self.jaw_max / (self.gripper_max - self.gripper_zero)
         self.gripper_to_jaw_offset = -self.gripper_zero * self.gripper_to_jaw_scale
 
-        self.operator_is_active = False
+        self.operator_is_active = True
         if operator_present_topic:
             self.operator_is_present = False
             self.operator_button = crtk.joystick_button(ral, operator_present_topic)
@@ -85,18 +85,21 @@ class teleoperation:
 
 
         self.move_xyz = PyKDL.Vector(0.0, 0.0, 0.0)
+        self.each_step = PyKDL.Vector(0.0, 0.0, 0.0)
         self.move_direction = [1, 1, 1] 
         self.move_index = 0  
-        self.move_step = 0.005  
-        self.move_max = 0.1  
+        self.move_step = 0.0005  
+        self.move_max = 0.01
+        self.move_min_z = -0.001
+        self.move_min_x = -0.001  
         self.interval = 50
-        self.count = 0
+        self.count = 0 
          
     # callback for operator pedal/button
     def on_operator_present(self, present):
         self.operator_is_present = present
         if not present:
-            self.operator_is_active = False
+            self.operator_is_active = True
 
     # callback for clutch pedal/button
     def on_clutch(self, clutch_pressed):
@@ -135,7 +138,7 @@ class teleoperation:
         self.last_align = None
         self.last_operator_prompt = time.perf_counter()
 
-        self.master.use_gravity_compensation(True)
+        self.master.use_gravity_compensation(False)
         self.puppet.hold()
 
         # reset operator activity data in case operator is inactive
@@ -230,7 +233,7 @@ class teleoperation:
             self.running = False
         self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint[0])
 
-        self.master.use_gravity_compensation(True)
+        self.master.use_gravity_compensation(False)
 
     def transition_following(self):
         if not self.operator_is_present:
@@ -245,34 +248,41 @@ class teleoperation:
 
         # Position measurement
         master_measured_cp = self.master.measured_cp()[0]       # return PyKDL.Frame
-
+        print(f"original position:{master_measured_cp.p}")
         if self.recording_enabled:
+            
             if self.count >= self.interval:
                 self.count = 0
                 # 0 = x, 1 = y, 2 = z
                 i = self.move_index
                 if i == 0:
                     self.move_xyz[0] += self.move_direction[0] * self.move_step
+                    self.each_step[0] = self.move_direction[0] * self.move_step
                     if abs(self.move_xyz[0]) > self.move_max:
                         self.move_xyz[0] = self.move_direction[0] * self.move_max
                         self.move_direction[0] *= -1
                     self.move_index = 1  # y
                 elif i == 1:
                     self.move_xyz[1] += self.move_direction[1] * self.move_step
+                    self.each_step[1] = self.move_direction[1] * self.move_step
                     if abs(self.move_xyz[1]) > self.move_max:
                         self.move_xyz[1] = self.move_direction[1] * self.move_max
                         self.move_direction[1] *= -1
                     self.move_index = 2  # z
                 elif i == 2:
                     self.move_xyz[2] += self.move_direction[2] * self.move_step
+                    self.each_step[2] = self.move_direction[2] * self.move_step 
                     if abs(self.move_xyz[2]) > self.move_max:
                         self.move_xyz[2] = self.move_direction[2] * self.move_max
                         self.move_direction[2] *= -1
                     self.move_index = 0  # x
-                else:
-                    self.count += 1
+            else:
+                self.count += 1
 
-            master_measured_cp.p += self.move_xyz
+            self.each_step[2] = 0.0
+            master_measured_cp.p += self.each_step
+            print(f"move:{self.each_step}")
+            print(f"current position:{master_measured_cp.p}\n")
 
         # Move
         self.master.servo_cp(master_measured_cp)
@@ -402,10 +412,10 @@ class MTM:
         self.utils.add_setpoint_cp()
         self.utils.add_move_cp()
         self.utils.add_servo_cs()
-
+        self.utils.add_servo_cp()
+        self.utils.add_measured_js()
         '''For auto moving'''
         self.utils.add_move_jp()
-        self.utils.add_setpoint_jp()
 
         self.gripper = self.Gripper(self.ral.create_child('gripper'), timeout)
         self.body = self.ServoMeasCF(self.ral.create_child('body'), timeout)

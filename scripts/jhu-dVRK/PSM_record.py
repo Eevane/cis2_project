@@ -85,11 +85,14 @@ class teleoperation:
 
 
         self.move_xyz = PyKDL.Vector(0.0, 0.0, 0.0)
-        self.move_direction = [1, 1, 1] 
+        self.each_step = PyKDL.Vector(0.0, 0.0, 0.0)
+        self.move_direction = [-1, -1, -1] 
         self.move_index = 0  
-        self.move_step = 0.005  
-        self.move_max = 0.1  
-        self.interval = 50
+        self.move_step = 0.0005  
+        self.move_max = 0.01
+        self.move_min_z = -0.001
+        self.move_min_x = -0.001  
+        self.interval = 100
         self.count = 0 
 
 
@@ -247,7 +250,7 @@ class teleoperation:
 
         # Position measurement
         puppet_measured_cp = self.puppet.measured_cp()[0]       # return PyKDL.Frame
-
+        print(f"original position:{puppet_measured_cp.p}")
         if self.recording_enabled:
             
             if self.count >= self.interval:
@@ -256,27 +259,31 @@ class teleoperation:
                 i = self.move_index
                 if i == 0:
                     self.move_xyz[0] += self.move_direction[0] * self.move_step
+                    self.each_step[0] = self.move_direction[0] * self.move_step
                     if abs(self.move_xyz[0]) > self.move_max:
                         self.move_xyz[0] = self.move_direction[0] * self.move_max
                         self.move_direction[0] *= -1
                     self.move_index = 1  # y
                 elif i == 1:
                     self.move_xyz[1] += self.move_direction[1] * self.move_step
+                    self.each_step[1] = self.move_direction[1] * self.move_step
                     if abs(self.move_xyz[1]) > self.move_max:
                         self.move_xyz[1] = self.move_direction[1] * self.move_max
                         self.move_direction[1] *= -1
                     self.move_index = 2  # z
                 elif i == 2:
                     self.move_xyz[2] += self.move_direction[2] * self.move_step
+                    self.each_step[2] = self.move_direction[2] * self.move_step 
                     if abs(self.move_xyz[2]) > self.move_max:
                         self.move_xyz[2] = self.move_direction[2] * self.move_max
                         self.move_direction[2] *= -1
                     self.move_index = 0  # x
-                else:
-                    self.count += 1
+            else:
+                self.count += 1
 
-            puppet_measured_cp.p += self.move_xyz
-
+            puppet_measured_cp.p += self.each_step
+            print(f"move:{self.each_step}")
+            print(f"current position:{puppet_measured_cp.p}\n")
         # Move
         self.puppet.servo_cp(puppet_measured_cp)
 
@@ -290,7 +297,7 @@ class teleoperation:
             self.recording_enabled = False
 
         if self.recording_enabled:
-            with open("PSM_data.csv", "a", newline='') as f:
+            with open("/home/pshao7/dvrk_python_devel/psm.csv", "a", newline='') as f:
                 writer = csv.writer(f)
 
                 timestamp = time.time()
@@ -333,9 +340,10 @@ class teleoperation:
             return
         
         """for auto moving"""
+
         puppet_initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
         self.puppet.move_jp(puppet_initial_position)
-
+        time.sleep(3)
         teleop_rate = self.ral.create_rate(int(1/self.run_period))
         print("Running teleop at {} Hz".format(int(1/self.run_period)))
 
@@ -345,32 +353,34 @@ class teleoperation:
         self.master.lock_orientation(self.master.measured_cp()[0].M)
 
         while not self.ral.is_shutdown():
-            # check if teleop state should transition
-            if self.current_state == teleoperation.State.ALIGNING:
-                self.transition_aligning()
-            elif self.current_state == teleoperation.State.CLUTCHED:
-                self.transition_clutched()
-            elif self.current_state == teleoperation.State.FOLLOWING:
-                self.transition_following()
-            else:
-                raise RuntimeError("Invalid state: {}".format(self.current_state))
+            # # check if teleop state should transition
+            # if self.current_state == teleoperation.State.ALIGNING:
+            #     self.transition_aligning()
+            # elif self.current_state == teleoperation.State.CLUTCHED:
+            #     self.transition_clutched()
+            # elif self.current_state == teleoperation.State.FOLLOWING:
+            #     self.transition_following()
+            # else:
+            #     raise RuntimeError("Invalid state: {}".format(self.current_state))
 
-            self.check_arm_state()
+            # self.check_arm_state()
             
            
-            if not self.running:
-                break
+            # if not self.running:
+            #     break
 
-            # run teleop state handler
-            if self.current_state == teleoperation.State.ALIGNING:
-                self.run_aligning()
-            elif self.current_state == teleoperation.State.CLUTCHED:
-                self.run_clutched()
-            elif self.current_state == teleoperation.State.FOLLOWING:
-                self.run_following()
-            else:
-                raise RuntimeError("Invalid state: {}".format(self.current_state))
+            # # run teleop state handler
+            # if self.current_state == teleoperation.State.ALIGNING:
+            #     self.run_aligning()
+            # elif self.current_state == teleoperation.State.CLUTCHED:
+            #     self.run_clutched()
+            # elif self.current_state == teleoperation.State.FOLLOWING:
+            #     self.run_following()
+            # else:
+            #     raise RuntimeError("Invalid state: {}".format(self.current_state))
 
+            self.current_state = teleoperation.State.FOLLOWING
+            self.run_following()
             teleop_rate.sleep()
 
         # # save data
@@ -408,7 +418,7 @@ class MTM:
 
         '''For auto moving'''
         self.utils.add_move_jp()
-        self.utils.add_setpoint_jp()
+
 
         self.gripper = self.Gripper(self.ral.create_child('gripper'), timeout)
         self.body = self.ServoMeasCF(self.ral.create_child('body'), timeout)
@@ -466,7 +476,7 @@ class PSM:
         self.utils.add_measured_cv()
         self.utils.add_move_jp()
         self.utils.add_measured_cp()
-
+        self.utils.add_measured_js()
         self.body = self.MeasureCF(self.ral.create_child('body'), timeout)
         self.local = self.MeasuredCP(self.ral.create_child('local'),timeout)
         self.jaw = self.Jaw(self.ral.create_child('jaw'), timeout)

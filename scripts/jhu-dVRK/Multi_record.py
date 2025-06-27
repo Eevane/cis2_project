@@ -14,7 +14,7 @@
 # --- end cisst license ---
 
 """ Multilateral teleoperation single console - ROS2 version """
-""" Strong-connected structure """
+# modified by Xiangyi Le
 
 import argparse
 import crtk
@@ -26,7 +26,7 @@ import PyKDL
 import std_msgs.msg
 import sys
 import time
-
+import csv
 class teleoperation:
     class State(Enum):
         ALIGNING = 1
@@ -62,9 +62,11 @@ class teleoperation:
         self.align_rate = 0.25 * math.pi if self.can_align_mtm else 0.0
 
         # don't require alignment before beginning teleop if mtm wrist can't be actuated
-        self.operator_orientation_tolerance = 5 * math.pi / 180 if self.can_align_mtm else math.pi
+        self.operator_orientation_tolerance = 90 * math.pi / 180 if self.can_align_mtm else math.pi
         self.operator_gripper_threshold = 5 * math.pi / 180
+        self.operator_gripper_threshold = 1 * math.pi / 180
         self.operator_roll_threshold = 3 * math.pi / 180
+        self.operator_roll_threshold = 1 * math.pi / 180
 
         self.gripper_to_jaw_scale = self.jaw_max / (self.gripper_max - self.gripper_zero)
         self.gripper_to_jaw_offset = -self.gripper_zero * self.gripper_to_jaw_scale
@@ -90,6 +92,13 @@ class teleoperation:
         self.m2_force = []
         self.puppet_force = []
 
+        """For recording"""
+        # self.header_written = False # put it in teleoperation_init
+        self.header_written = True # put it in teleoperation_init
+        self.start_time = time.monotonic()
+        self.recording_enabled = False
+        self.record_size = 0
+        
     # average rotation by quaternion
     def average_rotation(self, rotation1, rotation2, alpha=0.5):
         # transfrom into quaternion
@@ -99,6 +108,19 @@ class teleoperation:
         # average and norm
         mean_quat = alpha * quat1 + (1-alpha) * quat2
         mean_quat /= numpy.linalg.norm(mean_quat)
+
+        # # transform into rotation matrix
+        # angle = 2 * numpy.arccos(mean_quat[3])
+        # s = numpy.sqrt(1 - mean_quat[3] ** 2)
+
+        # if s < 1e-8:
+        #     axis = numpy.array([1.0, 0.0, 0.0])
+        # else:
+        #     axis = numpy.array([mean_quat[0], mean_quat[1], mean_quat[2]]) / s
+        
+
+
+
         return PyKDL.Rotation.Quaternion(mean_quat[0], mean_quat[1], mean_quat[2], mean_quat[3])
 
     # callback for operator pedal/button
@@ -118,12 +140,6 @@ class teleoperation:
     # compute relative orientation of mtm2 and psm
     def alignment_offset_master2(self):
         return self.master2.measured_cp()[0].M.Inverse() * self.puppet.setpoint_cp()[0].M
-    
-    ######################################################################################
-    # compute relative orientation of mtm1 and mtm2
-    def alignment_offset_master1_to_master2(self):
-        return self.master1.measured_cp()[0].M.Inverse() * self.master2.measured_cp()[0].M
-    ######################################################################################
 
     # set relative origins for clutching and alignment offset
     def update_initial_state(self):
@@ -133,11 +149,8 @@ class teleoperation:
 
         self.alignment_offset_initial_master1 = self.alignment_offset_master1()
         self.alignment_offset_initial_master2 = self.alignment_offset_master2()
-        self.alignment_offset_initial_masters = self.alignment_offset_master1_to_master2()
-
         self.master1_offset_angle, self.master1_offset_axis = self.alignment_offset_initial_master1.GetRotAngle()
         self.master2_offset_angle, self.master2_offset_axis = self.alignment_offset_initial_master2.GetRotAngle()
-        self.masters_offset_angle, self.masters_offset_axis = self.alignment_offset_initial_masters.GetRotAngle()
 
     def gripper_to_jaw(self, gripper_angle):
         jaw_angle = self.gripper_to_jaw_scale * gripper_angle + self.gripper_to_jaw_offset
@@ -164,8 +177,10 @@ class teleoperation:
         self.last_align = None
         self.last_operator_prompt = time.perf_counter()
 
-        self.master1.use_gravity_compensation(True)
-        self.master2.use_gravity_compensation(True)
+        # self.master1.use_gravity_compensation(True)
+        # self.master2.use_gravity_compensation(True)
+        self.master1.use_gravity_compensation(False)
+        self.master2.use_gravity_compensation(False)
         self.puppet.hold()
 
         # reset operator activity data in case operator is inactive
@@ -267,15 +282,15 @@ class teleoperation:
 
     def run_clutched(self):
         # let arm move freely
-        wrench = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        self.master1.body.servo_cf(wrench)
-        self.master2.body.servo_cf(wrench)
-        self.master1.lock_orientation(self.master1.measured_cp()[0].M)
-        self.master2.lock_orientation(self.master2.measured_cp()[0].M)
+        # wrench = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # self.master1.body.servo_cf(wrench)
+        # self.master2.body.servo_cf(wrench)
+        # self.master1.lock_orientation(self.master1.measured_cp()[0].M)
+        # self.master2.lock_orientation(self.master2.measured_cp()[0].M)
 
-        self.puppet.hold()
+        # self.puppet.hold()
 
-        #pass
+        pass
 
     def enter_following(self):
         self.current_state = teleoperation.State.FOLLOWING
@@ -289,8 +304,10 @@ class teleoperation:
             self.running = False
         self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint[0])
 
-        self.master1.use_gravity_compensation(True)
-        self.master2.use_gravity_compensation(True)
+        # self.master1.use_gravity_compensation(True)
+        # self.master2.use_gravity_compensation(True)
+        self.master1.use_gravity_compensation(False)
+        self.master2.use_gravity_compensation(False)
 
     def transition_following(self):
         if not self.operator_is_present:
@@ -315,12 +332,12 @@ class teleoperation:
 
         # puppet
         puppet_measured_cf = self.puppet.body.measured_cf()[0]
-        puppet_measured_cf[0:3] *= -1.0
+        puppet_measured_cf[0:3] *= +1.0
         puppet_measured_cf[3:6] *= 0
 
         # force input
-        gamma = 0.2
-        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
+        #### add gamma?
+        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + puppet_measured_cf)
         force_goal = force_goal.tolist()
 
 
@@ -401,65 +418,97 @@ class teleoperation:
         puppet_translation = puppet_measured_cp.p - self.puppet_cartesian_initial.p     ##### should it update puppet initial cartesian after forward process???
         puppet_translation /= self.scale
 
-        master1_measured_cp = self.master1.measured_cp()[0]       # return PyKDL.Frame
-        master2_measured_cp = self.master2.measured_cp()[0]       # return PyKDL.Frame
-        master1_translation = master1_measured_cp.p - self.master1_cartesian_initial.p   # PyKDL.Vector
-        master2_translation = master2_measured_cp.p - self.master2_cartesian_initial.p   # PyKDL.Vector
-
         # set translation of mtm1
-        master1_translation_goal = (master2_translation + puppet_translation) / 2.0
-        master1_position = master1_translation_goal + self.master1_cartesian_initial.p
-
+        master1_position = puppet_translation + self.master1_cartesian_initial.p
         # set translation of mtm2
-        master2_translation_goal = (master1_translation + puppet_translation) / 2.0
-        master2_position = master2_translation_goal + self.master2_cartesian_initial.p
+        master2_position = puppet_translation + self.master2_cartesian_initial.p
 
-        # set rotation of psm to match mtm plus alignment offset
-        master2_rotation_alignment_ToMaster1 = master2_measured_cp.M * self.alignment_offset_initial_masters.Inverse()
-        puppet_rotation_alignment_ToMaster1 = puppet_measured_cp.M * master1_alignment_offset.Inverse()
-
-        puppet_rotation_alignment_ToMaster2 = puppet_measured_cp.M * master2_alignment_offset.Inverse()
-        master1_rotation_alignment_ToMaster2 = master1_measured_cp.M * self.alignment_offset_initial_masters
-
-        # average rotation
-        master1_rotation_goal = self.average_rotation(master2_rotation_alignment_ToMaster1, puppet_rotation_alignment_ToMaster1)
-        master2_rotation_goal = self.average_rotation(puppet_rotation_alignment_ToMaster2, master1_rotation_alignment_ToMaster2)
+        # set rotation of mtm1
+        master1_rotation = puppet_measured_cp.M * master1_alignment_offset.Inverse()
+        # set rotation of mtm2
+        master2_rotation = puppet_measured_cp.M * master2_alignment_offset.Inverse()
 
         # set cartesian goal of mtm1 and mtm2
-        master1_cartesian_goal = PyKDL.Frame(master1_rotation_goal, master1_position)
-        master2_cartesian_goal = PyKDL.Frame(master2_rotation_goal, master2_position)
+        master1_cartesian_goal = PyKDL.Frame(master1_rotation, master1_position)
+        master2_cartesian_goal = PyKDL.Frame(master2_rotation, master2_position)
 
 
         # Velocity channel
         puppet_measured_cv = self.puppet.measured_cv()[0]   # (6,) numpy array
         puppet_measured_cv[0:3] /= self.velocity_scale      # scale the linear velocity
         puppet_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
-
-        master1_measured_cv = self.master1.measured_cv()[0] 
-        master1_measured_cv[3:6] *= 0.2      
-
-        master2_measured_cv = self.master2.measured_cv()[0]   # master2    
-        master2_measured_cv[3:6] *= 0.2
-
-        master1_velocity_goal = ((puppet_measured_cv + master2_measured_cv) / 2.0).tolist()
-        master2_velocity_goal = ((puppet_measured_cv + master1_measured_cv) / 2.0).tolist()
+        master1_velocity_goal = puppet_measured_cv.tolist()
+        master2_velocity_goal = puppet_measured_cv.tolist()
 
 
         # Move
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
+        # time.sleep(0.005)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
+
+        print(f"puppet measured cf is {puppet_measured_cf}")
+        print("")
 
 
         # """
         # plot
         # """
-        # self.y_data_l.append([XXXpuppet_measured_cp.p.x(), XXXpuppet_measured_cp.p.y(), XXXpuppet_measured_cp.p.z()])
-        # self.y_data_l_expected.append([XXXpuppet_position.p.x(), XXXuppet_position.p.y(), XXXpuppet_position.p.z()])
+        # self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
+        # self.y_data_l_expected.append([puppet_position.p.x(), puppet_position.p.y(), puppet_position.p.z()])
 
-        # self.m1_force.append(Xmaster1_measured_cf)
-        # self.m2_force.append(Xmaster2_measured_cf)
-        # self.puppet_force.append(Xpuppet_measured_cf)
+        # self.m1_force.append(master1_measured_cf)
+        # self.m2_force.append(master2_measured_cf)
+        # self.puppet_force.append(puppet_measured_cf)
         # self.a += 1
+
+        '''For recording'''
+        current_time = time.monotonic()
+        print(f"recording enabled: {self.recording_enabled}")
+        if not self.recording_enabled and float(current_time - self.start_time) >= 10.0:
+            print("Start recording joint data")
+            self.recording_enabled = True
+
+        if self.recording_enabled and self.record_size >= 1500:
+            print("Auto stopping: 20 minutes reached.")
+            # time.strftime("%Y-%m-%d %H:%M:%S", current_time)
+            # time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
+            print(f"start_time: {self.start_time}")
+            print(f"end_time: {current_time}")
+            self.recording_enabled = False
+            self.running = False
+
+        if self.recording_enabled:
+            # with open(f"/home/pshao7/dvrk_python_devel/{self.start_time}-MTMR-Mul-Test-joint_data.csv", "a", newline='') as f:
+            with open(f"/home/pshao7/dvrk_python_devel/3722205.992509702-MTMR-Mul-Test-joint_data.csv", "a", newline='') as f:
+                self.record_size += 1
+                print("Recording data.")
+                writer = csv.writer(f)
+
+                timestamp = time.time()
+                master1_js = self.master1.measured_js()
+                master2_js = self.master2.measured_js()
+                puppet_js  = self.puppet.measured_js()
+
+                master1_q = list(master1_js[0][:6])
+                master1_dq = list(master1_js[1][:6])
+                master1_torque = list(master1_js[2][:6])
+
+                master2_q = list(master2_js[0][:6])
+                master2_dq = list(master2_js[1][:6])
+                master2_torque = list(master2_js[2][:6])
+
+                puppet_q = list(puppet_js[0])
+                puppet_dq = list(puppet_js[1])
+                puppet_torque = list(puppet_js[2])
+
+                row = [timestamp] + master1_q + master1_dq + master1_torque + master2_q + master2_dq + master2_torque + puppet_q + puppet_dq + puppet_torque
+
+                if not self.header_written:
+                    headers = ['timestamp'] + [f'master1_q{i}' for i in range(6)] + [f'master1_dq{i}' for i in range(6)] + [f'master1_tau{i}' for i in range(6)] + [f'master2_q{i}' for i in range(6)] + [f'master2_dq{i}' for i in range(6)] + [f'master2_tau{i}' for i in range(6)] + [f'puppet_q{i}' for i in range(6)]  + [f'puppet_dq{i}' for i in range(6)]  + [f'puppet_tau{i}' for i in range(6)]
+                    writer.writerow(headers)
+                    self.header_written = True
+
+                writer.writerow(row)
 
 
     def home(self):
@@ -563,6 +612,7 @@ class MTM:
         self.utils.add_setpoint_cp()
         self.utils.add_move_cp()
         self.utils.add_servo_cs()
+        self.utils.add_measured_js()
 
         self.gripper = self.Gripper(self.ral.create_child('gripper'), timeout)
         self.body = self.ServoMeasCF(self.ral.create_child('body'), timeout)
@@ -620,6 +670,7 @@ class PSM:
         self.utils.add_measured_cv()
         self.utils.add_move_jp()
         self.utils.add_measured_cp()
+        self.utils.add_measured_js()
 
         self.body = self.MeasureCF(self.ral.create_child('body'), timeout)
         self.local = self.MeasuredCP(self.ral.create_child('local'),timeout)
