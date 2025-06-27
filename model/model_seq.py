@@ -16,12 +16,12 @@ class JointDataset(Dataset):
         self.seq_len = seq_len
         assert mode in ['train', 'test'], "mode should be 'train' or 'test'"
 
-        # 1. 读取数据
+        # load data
         df = pd.read_csv(file_path)
         inputs = df.iloc[:, 2:8].values.astype('float32')   # (N, 6)
         targets = df.iloc[:, 8:].values.astype('float32')   # (N, 3)
 
-        # 2. 统一划分 train/test（按时间顺序划分，不打乱）
+        # divide training/testing dataset
         total_len = len(inputs)
         split_index = int(total_len * split_ratio)
         if mode == 'train':
@@ -31,16 +31,27 @@ class JointDataset(Dataset):
             inputs = inputs[split_index - seq_len + 1:]  # 向前补 seq_len-1 保证滑窗连续
             targets = targets[split_index - seq_len + 1:]
 
-        # 3. 标准化（使用训练集参数 or 当前计算）
+        # Z-score normalization
         if mean is None or std is None:
-            self.input_mean = inputs.mean(axis=0)
-            self.input_std = inputs.std(axis=0) + 1e-8
+            input_mean = inputs.mean(axis=0)
+            input_std = inputs.std(axis=0) + 1e-8
+            target_mean = targets.mean(axis=0)
+            target_std = targets.std(axis=0) + 1e-8
         else:
-            self.input_mean = mean
-            self.input_std = std
-        inputs = (inputs - self.input_mean) / self.input_std
+            assert torch.is_tensor(mean) and torch.is_tensor(std)
+            mean = mean.detach().cpu().numpy()
+            std = std.detach().cpu().numpy()
+            input_mean = mean
+            input_std = std
+            target_mean = targets.mean(axis=0)
+            target_std = targets.std(axis=0) + 1e-8
+        inputs = (inputs - input_mean) / input_std
 
-        # 4. 构造滑动窗口
+        # sliding window
+        self.input_mean = torch.tensor(input_mean)
+        self.input_std = torch.tensor(input_std)
+        self.target_mean = torch.tensor(target_mean)
+        self.target_std = torch.tensor(target_std)
         self.inputs = []
         self.targets = []
         for i in range(len(inputs) - seq_len + 1):
@@ -79,8 +90,14 @@ class JointLSTMModel(nn.Module):
         return x
 
 # training
-def train(model, training_dataloader, testing_dataloader, optimizer, criterion, device, epochs=20, ckpt_path='training_results'):
+def train(component, model, training_dataloader, testing_dataloader, optimizer, criterion, device, epochs=20, ckpt_path='training_results'):
     model.to(device)
+
+    # store mean-std of input data
+    input_std = training_dataloader.dataset.input_std.to(device)
+    input_mean = training_dataloader.dataset.input_mean.to(device)
+    target_std = training_dataloader.dataset.target_std.to(device)
+    target_mean = training_dataloader.dataset.target_mean.to(device)
 
     for epoch in range(epochs):
         model.train()
@@ -114,26 +131,26 @@ def train(model, training_dataloader, testing_dataloader, optimizer, criterion, 
             avg_test_loss = running_test_loss / len(testing_dataloader)
             print(f"Epoch {epoch+1}/{epochs}, Testing Loss: {test_loss.item():.4f}")
             print(f"Epoch {epoch+1}/{epochs}, Testing average Loss: {avg_test_loss:.4f}")
+            print("")
 
-        if avg_loss < 3e-2:
-            torch.save({
-            'epoch': epoch + 1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': avg_loss,
-        }, f'{ckpt_path}/m-{str(time.time())}-{str("%.4f" % avg_loss)}.pth.tar')
-            
     # Save final results
     torch.save({
         'epoch': epochs,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'loss': avg_loss,
-    }, f'{ckpt_path}/m-{str(time.time())}-{str("%.4f" % avg_loss)}.pth.tar')
+        'loss': avg_loss
+    }, f'{ckpt_path}/bi-{component}-{str("%.4f" % avg_loss)}.pth.tar')
+
+    np.savez(f"{ckpt_path}/bi-{component}-norm_params.npz",
+         input_mean=input_mean.cpu().numpy(),
+         input_std=input_std.cpu().numpy(),
+         target_mean=target_mean.cpu().numpy(),
+         target_std=target_std.cpu().numpy())
 
 
 if __name__ == "__main__":
-    training_file_path = "../../Dataset/train_0620/master-FirstThreeJoints.csv"
+    component = 'puppet-Last'
+    training_file_path = f"../../Dataset/train_0622/{component}ThreeJoints.csv"
     #testing_file_path = "../../Dataset/testing_0620/master1-FirstThreeJoints.csv"
     output_path = "training_results/"
 
@@ -142,7 +159,7 @@ if __name__ == "__main__":
 
     batch_size = 64
     lr = 1e-4
-    num_epochs = 100
+    num_epochs = 40
     seq_len= 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -157,4 +174,4 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
-    train(model, training_dataloader, testing_dataloader, optimizer, criterion, device, epochs=num_epochs, ckpt_path=output_path)
+    train(component, model, training_dataloader, testing_dataloader, optimizer, criterion, device, epochs=num_epochs, ckpt_path=output_path)
