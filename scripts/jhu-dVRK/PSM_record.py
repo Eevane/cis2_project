@@ -89,8 +89,8 @@ class teleoperation:
         self.move_index = 0  
         self.move_step = 0.005  
         self.move_max = 0.1  
-        self.last_step_time = time.time()
-        self.step_interval = 0.05 
+        self.interval = 50
+        self.count = 0 
 
 
          
@@ -249,8 +249,9 @@ class teleoperation:
         puppet_measured_cp = self.puppet.measured_cp()[0]       # return PyKDL.Frame
 
         if self.recording_enabled:
-            now = time.time()
-            if now - self.last_step_time >= self.step_interval:
+            
+            if self.count >= self.interval:
+                self.count = 0
                 # 0 = x, 1 = y, 2 = z
                 i = self.move_index
                 if i == 0:
@@ -271,8 +272,8 @@ class teleoperation:
                         self.move_xyz[2] = self.move_direction[2] * self.move_max
                         self.move_direction[2] *= -1
                     self.move_index = 0  # x
-
-                self.last_step_time = now
+                else:
+                    self.count += 1
 
             puppet_measured_cp.p += self.move_xyz
 
