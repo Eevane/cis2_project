@@ -89,13 +89,11 @@ class teleoperation:
         self.each_step = PyKDL.Vector(0.0, 0.0, 0.0)
         self.move_direction = [1, 1, 1] 
         self.move_index = 0  
-        self.move_step = 0.0005  
-        self.move_max = 0.01
-        self.move_min_z = -0.001
-        self.move_min_x = -0.001  
-        self.interval = 50
+        self.move_step = 0.005  
+        self.move_max = 1
+        self.interval = 1
         self.count = 0 
-         
+        self.command_q = 0
     # callback for operator pedal/button
     def on_operator_present(self, present):
         self.operator_is_present = present
@@ -250,20 +248,24 @@ class teleoperation:
         if self.recording_enabled:
             if self.count >= self.interval:
                 self.count = 0
-                for i in range(6):
+                for i in range(1):
                     if random.random() < 0.5:  
                         step = random.uniform(-self.move_step, self.move_step)
+                        #step = self.move_step
                         if abs(master_q[i] + step) <= self.move_max:
                             master_move[i] = step
+
+                self.command_q = master_q + master_move
+                self.master.servo_jp(self.command_q, numpy.array([0.01,0.01,0.01,0.01,0.01,0.01])
+                print(f"move: {master_move}")
+                print(f"master_q: {master_q}")
+                print(f"target position: {self.command_q}\n")
             else:
                 self.count += 1
 
-            command_q = master_q + master_move
-            self.master.servo_jp(command_q)
+            # 
+            # 
 
-
-
-    
         if not self.recording_enabled and time.time() - self.start_time >= 5.0:
             print("Start recording joint data")
             self.recording_enabled = True

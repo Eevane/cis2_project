@@ -319,7 +319,7 @@ class teleoperation:
         puppet_measured_cf[3:6] *= 0
 
         # force input
-        gamma = 0.2
+        gamma = 0.8
         force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
         force_goal = force_goal.tolist()
 
@@ -449,17 +449,26 @@ class teleoperation:
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
+        if self.a == 5000:
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_strong_0628.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_exp_strong_0628.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m1_force_strong_0628.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m2_force_strong_0628.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_puppet_force_strong_0628.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
 
-        # """
-        # plot
-        # """
-        # self.y_data_l.append([XXXpuppet_measured_cp.p.x(), XXXpuppet_measured_cp.p.y(), XXXpuppet_measured_cp.p.z()])
-        # self.y_data_l_expected.append([XXXpuppet_position.p.x(), XXXuppet_position.p.y(), XXXpuppet_position.p.z()])
+            print(f"Program finished!" * 30)
 
-        # self.m1_force.append(Xmaster1_measured_cf)
-        # self.m2_force.append(Xmaster2_measured_cf)
-        # self.puppet_force.append(Xpuppet_measured_cf)
-        # self.a += 1
+
+        """
+        plot
+        """
+        self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
+        self.y_data_l_expected.append([puppet_position.x(), puppet_position.y(), puppet_position.z()])
+
+        self.m1_force.append(master1_measured_cf)
+        self.m2_force.append(master2_measured_cf)
+        self.puppet_force.append(puppet_measured_cf)
+        self.a += 1
 
 
     def home(self):

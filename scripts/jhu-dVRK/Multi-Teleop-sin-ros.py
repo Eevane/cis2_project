@@ -325,7 +325,7 @@ class teleoperation:
         puppet_measured_cf[3:6] *= 0
 
         # force input
-        gamma = 1.0
+        gamma = 0.8
         force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
         force_goal = force_goal.tolist()
 
@@ -435,20 +435,28 @@ class teleoperation:
         # time.sleep(0.005)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
-        print(f"puppet measured cf is {puppet_measured_cf}")
-        print("")
+        #print(f"puppet measured cf is {puppet_measured_cf}")
+
+        if self.a == 5000:
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_hub_0628.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_exp_hub_0628.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m1_force_hub_0628.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m2_force_hub_0628.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_puppet_force_hub_0628.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+
+            print(f"Program finished!" * 30)
 
 
-        # """
-        # plot
-        # """
-        # self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
-        # self.y_data_l_expected.append([puppet_position.p.x(), puppet_position.p.y(), puppet_position.p.z()])
+        """
+        plot
+        """
+        self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
+        self.y_data_l_expected.append([puppet_position.x(), puppet_position.y(), puppet_position.z()])
 
-        # self.m1_force.append(master1_measured_cf)
-        # self.m2_force.append(master2_measured_cf)
-        # self.puppet_force.append(puppet_measured_cf)
-        # self.a += 1
+        self.m1_force.append(master1_measured_cf)
+        self.m2_force.append(master2_measured_cf)
+        self.puppet_force.append(puppet_measured_cf)
+        self.a += 1
 
 
     def home(self):
@@ -485,6 +493,7 @@ class teleoperation:
         self.enter_aligning()
         self.running = True
 
+        #while not self.ral.is_shutdown():
         while not self.ral.is_shutdown():
             # check if teleop state should transition
             if self.current_state == teleoperation.State.ALIGNING:
@@ -519,14 +528,14 @@ class teleoperation:
 
             teleop_rate.sleep()
 
-        # # save data
-        # numpy.savetxt('multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # save data
+        # numpy.savetxt('multi_array_hub_0628.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_array_exp_hub_0628.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_m1_force_hub_0628.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_m2_force_hub_0628.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_puppet_force_hub_0628.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
 
-        print(f"Program finished!")
+        # print(f"Program finished!")
 
 class MTM:
             

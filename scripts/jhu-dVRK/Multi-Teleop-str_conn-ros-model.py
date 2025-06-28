@@ -165,8 +165,8 @@ class teleoperation:
         self.last_align = None
         self.last_operator_prompt = time.perf_counter()
 
-        self.master1.use_gravity_compensation(True)
-        self.master2.use_gravity_compensation(True)
+        self.master1.use_gravity_compensation(False)
+        self.master2.use_gravity_compensation(False)
         self.puppet.hold()
 
         # reset operator activity data in case operator is inactive
@@ -290,8 +290,8 @@ class teleoperation:
             self.running = False
         self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint[0])
 
-        self.master1.use_gravity_compensation(True)
-        self.master2.use_gravity_compensation(True)
+        self.master1.use_gravity_compensation(False)
+        self.master2.use_gravity_compensation(False)
 
     def transition_following(self):
         if not self.operator_is_present:
@@ -300,10 +300,12 @@ class teleoperation:
             self.enter_clutched()
 
     def externalforce_prediction(self, component):
+        # measured_js returns 6 joints for PSM, 7 joints for MTM
         measured_js = component.measured_js()
         q = measured_js[0][:6]
         dq = measured_js[1][:6]
         total_torque = measured_js[2][:6]
+        print(f"{component} measured_js is: {measured_js[2]}")
 
         # normalize input
         first_input = numpy.concatenate((q[0:3], dq[0:3]))
@@ -331,13 +333,15 @@ class teleoperation:
 
         internal_torque = numpy.hstack((torque_Joint1_3, torque_Joint4_6))
         external_torque = (total_torque - internal_torque)
-        print(f"measured gripper joint torque is: {measured_js[2][6]}")
+        # print(f"measured gripper joint torque is: {measured_js[2][6]}")
 
         # convert to cartesian force
-        external_torque = numpy.concatenate((external_torque, numpy.array([[measured_js[2][6]]])), axis=1)
-        print(f"external torque shape: {external_torque.T.shape}")
-        J = component.body.jacobian()   # shape (6,7)
-        print(f"Jacobian: {J}")
+        if isinstance(component, MTM):
+            external_torque = numpy.concatenate((external_torque, numpy.array([[measured_js[2][6]]])), axis=1)
+        # print(f"external torque shape: {external_torque.T.shape}")
+        J = component.body.jacobian()   # shape (6,7) of MTM and (6,6) of PSM
+        # print(f"Jacobian: {J}")
+        # print("")
         external_force = numpy.linalg.pinv(J.T) @ external_torque.T
         return external_force
 
@@ -363,8 +367,12 @@ class teleoperation:
         puppet_external_f[3:6] *= 0
 
         # force input
-        gamma = 0.2
+        gamma = 0.8
         force_goal = 0.2 * (self.beta * master1_external_f + (1 - self.beta) * master2_external_f + gamma * puppet_external_f)
+        print(f"force_goal: {force_goal}")
+        print(f"force_goal type: {type(force_goal[0])}")
+        print("")
+        force_goal = force_goal.reshape(-1)
         force_goal = force_goal.tolist()
 
 
@@ -472,17 +480,26 @@ class teleoperation:
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
+        if self.a == 5000:
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_model_0628.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_exp_model_0628.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m1_force_model_0628.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m2_force_model_0628.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_puppet_force_model_0628.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
 
-        # """
-        # plot
-        # """
-        # self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
-        # self.y_data_l_expected.append([puppet_position.p.x(), puppet_position.p.y(), puppet_position.p.z()])
+            print(f"Program finished!" * 30)
 
-        # self.m1_force.append(master1_measured_cf)
-        # self.m2_force.append(master2_measured_cf)
-        # self.puppet_force.append(puppet_measured_cf)
-        # self.a += 1
+
+        """
+        plot
+        """
+        self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
+        self.y_data_l_expected.append([puppet_position.x(), puppet_position.y(), puppet_position.z()])
+
+        self.m1_force.append(master1_external_f.reshape(-1))
+        self.m2_force.append(master2_external_f.reshape(-1))
+        self.puppet_force.append(puppet_external_f.reshape(-1))
+        self.a += 1
 
 
     def home(self):
@@ -711,15 +728,18 @@ if __name__ == '__main__':
     args = parser.parse_args(argv)
 
     ral = crtk.ral('dvrk_python_teleoperation')
-    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval, firstjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master1-first.onnx", 
-               firstjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz", lastjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master1-last.onnx", 
-               lastjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz")
-    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval, firstjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master2-first.onnx", 
-               firstjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz", lastjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/master2-last.onnx", 
-               lastjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz")
-    psm = PSM(ral, args.psm, timeout=20*args.interval, firstjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/puppet-first.onnx", 
-              firstjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz", lastjoints_onnxpath="/home/pshao7/dvrk_python_devel/Training_results/puppet-last.onnx", 
-              lastjoints_parampath="/home/pshao7/dvrk_python_devel/Training_results/norm_params.npz")
+    path_root = "/home/pshao7/dvrk_python_devel/cis2_project/cis2_project/model/training_results/"
+    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval, firstjoints_onnxpath=path_root+"0628-Mul-master1-First.onnx", 
+               firstjoints_parampath=path_root+"0628-master1-First-norm_params.npz", lastjoints_onnxpath=path_root+"0628-Mul-master1-Last.onnx", 
+               lastjoints_parampath=path_root+"0628-master1-Last-norm_params.npz")
+    
+    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval, firstjoints_onnxpath=path_root+"0628-Mul-master2-First.onnx", 
+               firstjoints_parampath=path_root+"0628-master2-First-norm_params.npz", lastjoints_onnxpath=path_root+"0628-Mul-master2-Last.onnx", 
+               lastjoints_parampath=path_root+"0628-master2-Last-norm_params.npz")
+    
+    psm = PSM(ral, args.psm, timeout=20*args.interval, firstjoints_onnxpath=path_root+"0628-Mul-puppet-First.onnx", 
+               firstjoints_parampath=path_root+"0628-puppet-First-norm_params.npz", lastjoints_onnxpath=path_root+"0628-Mul-puppet-Last.onnx", 
+               lastjoints_parampath=path_root+"0628-puppet-Last-norm_params.npz")
     application = teleoperation(ral, mtm1, mtm2, psm, args.clutch, args.interval,
                                 not args.no_mtm_alignment, operator_present_topic = args.operator, alpha = 0.5, beta = 0.5)
      
