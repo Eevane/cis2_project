@@ -16,6 +16,7 @@
 """ Bilateral teleoperation - ROS2 version """
 # modified by Xiangyi Le
 
+import random
 import argparse
 import crtk
 from enum import Enum
@@ -241,53 +242,28 @@ class teleoperation:
         elif self.clutch_pressed:
             self.enter_clutched()
 
-    def run_following(self):               
-        """
-        Forward Process
-        """
-
-        # Position measurement
-        master_measured_cp = self.master.measured_cp()[0]       # return PyKDL.Frame
-        print(f"original position:{master_measured_cp.p}")
+    def run_following(self):
+        master_js = self.master.measured_js()
+        master_q = numpy.array(master_js[0][:6])  
+        master_move = numpy.zeros(6)
+        
         if self.recording_enabled:
-            
             if self.count >= self.interval:
                 self.count = 0
-                # 0 = x, 1 = y, 2 = z
-                i = self.move_index
-                if i == 0:
-                    self.move_xyz[0] += self.move_direction[0] * self.move_step
-                    self.each_step[0] = self.move_direction[0] * self.move_step
-                    if abs(self.move_xyz[0]) > self.move_max:
-                        self.move_xyz[0] = self.move_direction[0] * self.move_max
-                        self.move_direction[0] *= -1
-                    self.move_index = 1  # y
-                elif i == 1:
-                    self.move_xyz[1] += self.move_direction[1] * self.move_step
-                    self.each_step[1] = self.move_direction[1] * self.move_step
-                    if abs(self.move_xyz[1]) > self.move_max:
-                        self.move_xyz[1] = self.move_direction[1] * self.move_max
-                        self.move_direction[1] *= -1
-                    self.move_index = 2  # z
-                elif i == 2:
-                    self.move_xyz[2] += self.move_direction[2] * self.move_step
-                    self.each_step[2] = self.move_direction[2] * self.move_step 
-                    if abs(self.move_xyz[2]) > self.move_max:
-                        self.move_xyz[2] = self.move_direction[2] * self.move_max
-                        self.move_direction[2] *= -1
-                    self.move_index = 0  # x
+                for i in range(6):
+                    if random.random() < 0.5:  
+                        step = random.uniform(-self.move_step, self.move_step)
+                        if abs(master_q[i] + step) <= self.move_max:
+                            master_move[i] = step
             else:
                 self.count += 1
 
-            self.each_step[2] = 0.0
-            master_measured_cp.p += self.each_step
-            print(f"move:{self.each_step}")
-            print(f"current position:{master_measured_cp.p}\n")
+            command_q = master_q + master_move
+            self.master.servo_jp(command_q)
 
-        # Move
-        self.master.servo_cp(master_measured_cp)
 
-        '''For recording'''
+
+    
         if not self.recording_enabled and time.time() - self.start_time >= 5.0:
             print("Start recording joint data")
             self.recording_enabled = True
@@ -299,15 +275,11 @@ class teleoperation:
         if self.recording_enabled:
             with open("MTM_data.csv", "a", newline='') as f:
                 writer = csv.writer(f)
-
                 timestamp = time.time()
-                master_js = self.master.measured_js()
-
-                master_q = list(master_js[0][:6])
                 master_dq = list(master_js[1][:6])
-                master_torque = list(master_js[2][:6])
+                master_tau = list(master_js[2][:6])
 
-                row = [timestamp] + master_q + master_dq + master_torque 
+                row = [timestamp] + list(master_q) + master_dq + master_tau
 
                 if not self.header_written:
                     headers = ['timestamp'] + [f'master_q{i}' for i in range(6)] + [f'master_dq{i}' for i in range(6)] + [f'master_tau{i}' for i in range(6)]
@@ -315,6 +287,7 @@ class teleoperation:
                     self.header_written = True
 
                 writer.writerow(row)
+
 
 
 
@@ -416,6 +389,7 @@ class MTM:
         self.utils.add_measured_js()
         '''For auto moving'''
         self.utils.add_move_jp()
+        self.utils.add_servo_jp()
 
         self.gripper = self.Gripper(self.ral.create_child('gripper'), timeout)
         self.body = self.ServoMeasCF(self.ral.create_child('body'), timeout)
