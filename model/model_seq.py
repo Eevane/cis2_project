@@ -139,9 +139,9 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'loss': avg_loss
-    }, f'{ckpt_path}/bi-{component}-{str("%.4f" % avg_loss)}.pth.tar')
+    }, f'{ckpt_path}/0628-{component}.pth.tar')
 
-    np.savez(f"{ckpt_path}/bi-{component}-norm_params.npz",
+    np.savez(f"{ckpt_path}/0628-{component}-norm_params.npz",
          input_mean=input_mean.cpu().numpy(),
          input_std=input_std.cpu().numpy(),
          target_mean=target_mean.cpu().numpy(),
@@ -150,7 +150,7 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
 
 if __name__ == "__main__":
     component = 'puppet-Last'
-    training_file_path = f"../../Dataset/train_0622/{component}ThreeJoints.csv"
+    training_file_path = f"../../Dataset/train_0627/{component}ThreeJoints.csv"
     #testing_file_path = "../../Dataset/testing_0620/master1-FirstThreeJoints.csv"
     output_path = "training_results/"
 
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     batch_size = 64
     lr = 1e-4
     num_epochs = 40
-    seq_len= 2
+    seq_len= 1
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train')
