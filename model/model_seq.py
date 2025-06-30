@@ -14,6 +14,7 @@ import numpy as np
 class JointDataset(Dataset):
     def __init__(self, file_path, seq_len=5, mode='train', split_ratio=0.7, mean=None, std=None):
         self.seq_len = seq_len
+
         assert mode in ['train', 'test'], "mode should be 'train' or 'test'"
 
         # load data
@@ -59,6 +60,10 @@ class JointDataset(Dataset):
             target_val = targets[i+seq_len-1]         # shape: (3,)
             self.inputs.append(torch.tensor(input_seq, dtype=torch.float32))
             self.targets.append(torch.tensor(target_val, dtype=torch.float32))
+
+        # target range
+        self.targets = torch.stack(self.targets)  
+        self.target_range = self.targets.max(dim=0).values - self.targets.min(dim=0).values
 
     def __len__(self):
         return len(self.inputs)
@@ -152,15 +157,15 @@ if __name__ == "__main__":
     component = 'puppet-Last'
     training_file_path = f"../../Dataset/train_0627/{component}ThreeJoints.csv"
     #testing_file_path = "../../Dataset/testing_0620/master1-FirstThreeJoints.csv"
-    output_path = "training_results/"
+    output_path = "../../Dataset/checkpoints/"
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
     batch_size = 64
     lr = 1e-4
-    num_epochs = 40
-    seq_len= 1
+    num_epochs = 25
+    seq_len= 5
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train')
