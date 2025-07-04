@@ -2,14 +2,16 @@ import pandas as pd
 import os
 import re
 
-def split_csv_by_column(input_path, output_dir, entities, keywords, common_columns=None):
+""" split .csv file bilaterally """
+
+def split_csv_by_column(input_path, output_dir, entities, keywords, save_name, common_columns=None):
     os.makedirs(output_dir, exist_ok=True)
     df = pd.read_csv(input_path)
 
     if common_columns == None:   # no common column
         common_columns = []
 
-    for ent in entities:
+    for index, ent in enumerate(entities):
         first_joints_col = []
         last_joints_col = []
         for keyword in keywords:
@@ -24,7 +26,7 @@ def split_csv_by_column(input_path, output_dir, entities, keywords, common_colum
                 else:
                     last_joints_col.append(col)
 
-        output_path = os.path.join(output_dir, ent)
+        output_path = os.path.join(output_dir, save_name[index])
         first_joints_df = df[common_columns + first_joints_col]
         first_joints_df.to_csv(output_path+'-FirstThreeJoints.csv')
         last_joints_df = df[common_columns + last_joints_col]
@@ -36,14 +38,15 @@ def split_csv_by_column(input_path, output_dir, entities, keywords, common_colum
 
 if __name__ == "__main__":
     dataset_root = "../../Dataset/"
-    output_path = ["train_0620"]
-    input_path  = ["MTML_PSM1_0622.csv"]
+    output_path = ["test_0627"]
+    input_path  = ["MTML-Mul-Test-joint_data.csv"]
 #                   "3288280.803231152-joint_data.csv"]
-    entities = ['master', 'puppet']
+    entities = ['master1', 'puppet']
+    save_name = ['master1', 'puppet1']
     keywords = ['q', 'dq', 'tau']
     common_columns = ['timestamp']
     
     for index, input in enumerate(input_path):
-        split_csv_by_column(input_path=(dataset_root+input), output_dir=(dataset_root+output_path[index]), entities=entities, keywords=keywords, common_columns=common_columns)
+        split_csv_by_column(input_path=(dataset_root+input), output_dir=(dataset_root+output_path[index]), entities=entities, keywords=keywords, save_name=save_name, common_columns=common_columns)
         print(f"Saved {output_path[index]}.")
         print("")
