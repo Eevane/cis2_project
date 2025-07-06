@@ -4,22 +4,22 @@ import onnx
 import onnxruntime
 import os
 from torch.utils.data import DataLoader
-from model_seq import JointLSTMModel, JointDataset
+from model import JointLSTMModel, JointDataset
 
 if __name__ == "__main__":
     # input path
-    component = 'puppet-Last'
-    testing_file_path = f"../../Dataset/test_0627/{component}ThreeJoints.csv"
-    model_path = f"training_results/0628-{component}.pth.tar"
+    component = 'master1-strong-First'
+    testing_file_path = f"../../Dataset/test_0704/{component}ThreeJoints.csv"
+    model_path = f"training_results/0704/best-{component}.pth.tar"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    onnx_save = False
+    onnx_save = True
 
     # load param
-    norm_data = np.load(f"training_results/{component}-stat_params.npz")
-    input_mean = norm_data['input_mean']
-    input_std = norm_data['input_std']
-    target_mean = norm_data['target_mean']
-    target_std = norm_data['target_std']
+    norm_data = np.load(f"training_results/0704/{component}-stat_params.npz")
+    input_mean = torch.tensor(norm_data['input_mean'], dtype=torch.float32)
+    input_std = torch.tensor(norm_data['input_std'], dtype=torch.float32)
+    target_mean = torch.tensor(norm_data['target_mean'], dtype=torch.float32)
+    target_std = torch.tensor(norm_data['target_std'], dtype=torch.float32)
     seq_len = norm_data['seq_len']
 
     model = JointLSTMModel()
@@ -59,32 +59,32 @@ if __name__ == "__main__":
         torch.onnx.export(
             model,
             dummy_input,  # e.g. torch.randn(1, 3, 224, 224)
-            onnx_path + f"Mul-{component}.onnx",
+            onnx_path + f"best-{component}.onnx",
             export_params=True,
             input_names = ['input'],  
             output_names = ['output'],
-            dynamic_axes={
-                "input": {0: "batch_size"},
-                "output": {0: "batch_size"}
-            }
+            # dynamic_axes={
+            #     # "input": {0: "batch_size"},
+            #     # "output": {0: "batch_size"}
+            # }
         )
 
         # verify if successfully save the model
-        model_onnx = onnx.load(onnx_path + f"Mul-{component}.onnx")
+        model_onnx = onnx.load(onnx_path + f"best-{component}.onnx")
         onnx.checker.check_model(model_onnx)
 
-        # running under onnxruntime
-        ort_session = onnxruntime.InferenceSession(onnx_path + f"Mul-{component}.onnx", providers=["CPUExecutionProvider"])
+        # # running under onnxruntime
+        # ort_session = onnxruntime.InferenceSession(onnx_path + f"best-{component}.onnx", providers=["CPUExecutionProvider"])
 
-        def to_numpy(tensor):
-            return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+        # def to_numpy(tensor):
+        #     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
-        for x, y in val_loader:
-            ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
-            ort_outs = ort_session.run(None, ort_inputs)
-            ort_outs_denormal = ort_outs * target_std + target_mean
-        print(ort_outs)
-        print(ort_outs_denormal)
+        # for x, y in val_loader:
+        #     ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
+        #     ort_outs = ort_session.run(None, ort_inputs)
+        #     ort_outs_denormal = ort_outs * to_numpy(target_std) + to_numpy(target_mean)
+        # print(ort_outs)
+        # print(ort_outs_denormal)
 
 
 

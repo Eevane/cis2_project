@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 
 class JointDataset(Dataset):
-    def __init__(self, file_path, seq_len=5, mode='train', split_ratio=0.7, in_mean=None, in_std=None, tar_mean=None, tar_std=None):
+    def __init__(self, file_path, seq_len=10, mode='train', split_ratio=0.7, in_mean=None, in_std=None, tar_mean=None, tar_std=None):
         self.seq_len = seq_len
         assert mode in ['train', 'test', 'evaluation'], "mode should be 'train', 'test' or 'evaluation'"
 
@@ -99,6 +99,7 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
     model.to(device)
 
     best_test_loss = float('inf')
+    best_train_loss = None
     best_epoch = -1
 
     for epoch in range(epochs):
@@ -116,7 +117,7 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
             running_loss += loss.item()
 
         avg_loss = running_loss / len(training_dataloader)
-        print(f"Epoch {epoch+1}/{epochs}, Training average Loss: {avg_loss:.4f}")
+        print(f"\nEpoch {epoch+1}/{epochs}, Training average Loss: {avg_loss:.4f}")
 
         # model evaluation on testing dataset
         running_test_loss = 0.0
@@ -131,12 +132,12 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
 
             avg_test_loss = running_test_loss / len(testing_dataloader)
             print(f"Epoch {epoch+1}/{epochs}, Testing average Loss: {avg_test_loss:.4f}")
-            print("")
         
         # save the best result
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
             best_epoch = epoch + 1
+            best_train_loss = avg_loss
 
             torch.save({
                 'epoch': best_epoch,
@@ -154,11 +155,13 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
         'loss': avg_loss
     }, f'{ckpt_path}/final-{component}.pth.tar')
 
+    print(f"Best Test Loss: {best_test_loss:.4f} at Epoch {best_epoch}")
+    print(f"Corresponding Training Loss: {best_train_loss:.4f}")
+
 
 if __name__ == "__main__":
-    component = 'puppet-Last'
-    training_file_path = f"../../Dataset/train_0627/{component}ThreeJoints.csv"
-    #testing_file_path = "../../Dataset/testing_0620/master1-FirstThreeJoints.csv"
+    component = 'master1-strong-First'
+    training_file_path = f"../../Dataset/train_0704/{component}ThreeJoints.csv"
     output_path = "training_results/0704"
 
     if not os.path.exists(output_path):
@@ -166,8 +169,8 @@ if __name__ == "__main__":
 
     batch_size = 64
     lr = 1e-4
-    num_epochs = 80
-    seq_len= 1
+    num_epochs = 60
+    seq_len= 10
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train')
