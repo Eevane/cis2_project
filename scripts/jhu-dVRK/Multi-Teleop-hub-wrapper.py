@@ -13,7 +13,7 @@
 
 # --- end cisst license ---
 
-""" Multilateral teleoperation single console - Wrapper version """
+""" Multilateral teleoperation single system - Wrapper version """
 """ Hub structure """
 
 import argparse
@@ -87,14 +87,15 @@ class teleoperation:
         self.m2_force = []
         self.puppet_force = []
 
+
     def set_vctFrm3(self, rotation=None, translation=None):
         vctFrm3 = cisstVector.vctFrm3()
         if rotation is not None:
-            assert isinstance(rotation, numpy.array) and rotation.shape == (3, 3)
+            assert all([isinstance(rotation, numpy.ndarray), rotation.shape == (3,3)])
             vctFrm3.SetRotation(rotation)
         
         if translation is not None:
-            assert isinstance(translation, numpy.array) and translation == (3,)  #??
+            assert all([isinstance(translation, numpy.ndarray), translation.shape == (3,)])  #??
             vctFrm3.SetTranslation(translation)
         return vctFrm3
 
@@ -220,23 +221,23 @@ class teleoperation:
             return
 
         master1_alignment_offset = self.alignment_offset_master1()
-        master1_orientation_error, _ = master1_alignment_offset.GetRotAngle()
+        master1_orientation_error, _ = self.GetRotAngle(master1_alignment_offset)
         master2_alignment_offset = self.alignment_offset_master2()
-        master2_orientation_error, _ = master2_alignment_offset.GetRotAngle()
+        master2_orientation_error, _ = self.GetRotAngle(master2_alignment_offset)
 
         master1_aligned = master1_orientation_error <= self.operator_orientation_tolerance
         master2_aligned = master2_orientation_error <= self.operator_orientation_tolerance
         aligned = master1_aligned and master2_aligned
-        print(f"If master1 is aligned: {master1_aligned}")
-        print(f"If master2 is aligned: {master2_aligned}")
+        # print(f"If master1 is aligned: {master1_aligned}")
+        # print(f"If master2 is aligned: {master2_aligned}")
         if aligned and self.operator_is_active:
             self.enter_following()
 
     def run_aligning(self):
         master1_alignment_offset = self.alignment_offset_master1()
-        master1_orientation_error, _ = master1_alignment_offset.GetRotAngle()
+        master1_orientation_error, _ = self.GetRotAngle(master1_alignment_offset)
         master2_alignment_offset = self.alignment_offset_master2()
-        master2_orientation_error, _ = master2_alignment_offset.GetRotAngle()
+        master2_orientation_error, _ = self.GetRotAngle(master2_alignment_offset)
 
         # if operator is inactive, use gripper or roll activity to detect when the user is ready
         if self.operator_is_present:
@@ -304,9 +305,9 @@ class teleoperation:
 
     def enter_clutched(self):
         self.current_state = teleoperation.State.CLUTCHED
-
+        print("enter clutch!")
         # let MTM position move freely, but lock orientation
-        wrench = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        wrench = numpy.array([ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.master1.body_servo_cf(wrench)
         self.master2.body_servo_cf(wrench)
 
@@ -333,7 +334,7 @@ class teleoperation:
         if len(jaw_setpoint) != 1:
             print(f'Unable to get jaw position. Make sure there is an instrument on the puppet ({self.puppet.name})')
             self.running = False
-        self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint[0])
+        self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint)
 
         self.master1.arm.use_gravity_compensation(True)
         self.master2.arm.use_gravity_compensation(True)
@@ -365,7 +366,7 @@ class teleoperation:
         puppet_measured_cf[3:6] *= 0
 
         # force input
-        gamma = 0.6
+        gamma = 0.714
         force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
 
 
@@ -435,7 +436,8 @@ class teleoperation:
         max_delta = self.jaw_rate * self.run_period
         # move ghost at most max_delta towards current gripper
         self.gripper_ghost += math.copysign(min(abs(ghost_lag), max_delta), ghost_lag)
-        self.puppet.jaw_servo_jp(numpy.array([self.gripper_to_jaw(self.gripper_ghost)]))
+        jaw_goal = numpy.array([self.gripper_to_jaw(self.gripper_ghost)]).reshape(-1)
+        self.puppet.jaw_servo_jp(jaw_goal)
 
 
         """
@@ -476,18 +478,21 @@ class teleoperation:
         """
         plot
         """
-        self.y_data_l.append(puppet_measured_trans)
-        self.y_data_l_expected.append(puppet_position)
-
-        self.m1_force.append(master1_measured_cf)
-        self.m2_force.append(master2_measured_cf)
-        self.puppet_force.append(puppet_measured_cf)
+        self.y_data_l.append(puppet_measured_trans.copy())
+        self.y_data_l_expected.append(puppet_position.copy())
+        # print(f"master1 measured_cf: {master1_measured_cf}")
+        self.m1_force.append(master1_measured_cf.copy())
+        self.m2_force.append(master2_measured_cf.copy())
+        self.puppet_force.append(puppet_measured_cf.copy())
         self.a += 1
 
 
+
+        
+
     def home(self):
         print("Homing arms...")
-        console.home()
+        system.home()
         timeout = 10.0 # seconds
         time.sleep(timeout)
         # if not self.puppet.enable(timeout) or not self.puppet.home(timeout):
@@ -542,7 +547,7 @@ class teleoperation:
                 else:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
 
-                self.check_arm_state()
+                # self.check_arm_state()
                 
             
                 if not self.running:
@@ -566,14 +571,15 @@ class teleoperation:
                 
         except KeyboardInterrupt:
             print("Program stopped!")
+            system.power_off()
 
-        # # save data
-        # numpy.savetxt('multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # numpy.savetxt('multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        # print(f"txt saved!")
+        # save data
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        print(f"txt saved!")
 
 class ARM:
     def __init__(self, arm, name):
@@ -621,22 +627,22 @@ class ARM:
         jaw = self.arm.jaw.setpoint_js()
         jaw_setpoint = jaw.Position()
         return jaw_setpoint
-    
+       
     def jaw_servo_jp(self, goal):
         assert self.name in ("PSM1", "PSM2")
-        assert isinstance(goal, float)
+        assert isinstance(goal, numpy.ndarray)
         arg = self.arm.jaw.servo_jp.GetArgumentPrototype()
         arg.SetGoal(goal)
         self.arm.jaw.servo_jp(arg)
     
     def move_cp(self, goal):
         assert isinstance(goal, cisstVector.vctFrm3)
-        arg = self.arm.move_cp.GetArgumentProtype()
+        arg = self.arm.move_cp.GetArgumentPrototype()
         arg.SetGoal(goal)
         self.arm.move_cp(arg)
 
     def servo_cs(self, position_goal, velocity_goal, force_goal):
-        assert isinstance(position_goal, cisstVector.vctFrm3) and isinstance(velocity_goal, numpy.array) and isinstance(force_goal, numpy.array)
+        assert all([isinstance(position_goal, cisstVector.vctFrm3), isinstance(velocity_goal, numpy.ndarray), isinstance(force_goal, numpy.ndarray)])
         arg = self.arm.servo_cs.GetArgumentPrototype()
         arg.SetPositionIsValid(True)
         arg.SetPosition(position_goal)
@@ -647,7 +653,7 @@ class ARM:
         self.arm.servo_cs(arg)
         
     def body_servo_cf(self, goal):
-        assert isinstance(goal, numpy.array)
+        assert isinstance(goal, numpy.ndarray)
         arg = self.arm.body.servo_cf.GetArgumentPrototype()
         arg.SetForce(goal)
         self.arm.body.servo_cf(arg)
@@ -688,8 +694,8 @@ if __name__ == '__main__':
                          help = 'dominance factor beta, between 0 and 1')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")
-    parser.add_argument('-i', '--interval', type=float, default=0.0025,
-                        help = 'time interval/period to run at - should be as long as console\'s period to prevent timeouts')
+    parser.add_argument('-i', '--interval', type=float, default=0.001,
+                        help = 'time interval/period to run at - should be as long as system\'s period to prevent timeouts')
     args = parser.parse_args()
 
     from dvrk_system import *
@@ -697,8 +703,8 @@ if __name__ == '__main__':
     mtm2 = ARM(MTMR, 'MTMR')
     psm = ARM(PSM1, 'PSM1')
 
-    clutch = Clutch
-    coag = Coag
+    clutch = clutch
+    coag = coag
 
     application = teleoperation(mtm1, mtm2, psm, clutch, args.interval,
                                 not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha, beta = args.beta)
