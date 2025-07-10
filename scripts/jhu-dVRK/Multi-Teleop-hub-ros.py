@@ -14,7 +14,7 @@
 # --- end cisst license ---
 
 """ Multilateral teleoperation single console - ROS2 version """
-""" Strong-connected structure, neural network deployed """
+""" Hub structure """
 
 import argparse
 import crtk
@@ -26,7 +26,6 @@ import PyKDL
 import std_msgs.msg
 import sys
 import time
-import onnxruntime
 
 class teleoperation:
     class State(Enum):
@@ -91,28 +90,6 @@ class teleoperation:
         self.m2_force = []
         self.puppet_force = []
 
-        self.queue_MTML_first3 = numpy.zeros((1, 10, 6))
-        self.queue_MTML_last3 = numpy.zeros((1, 10, 6))
-        self.queue_MTMR_first3 = numpy.zeros((1, 10, 6))
-        self.queue_MTMR_last3 = numpy.zeros((1, 10, 6))
-        self.queue_PSM_first3 = numpy.zeros((1, 10, 6))
-        self.queue_PSM_last3 = numpy.zeros((1, 10, 6))
-
-        self.internal_torque_record_MTML= []
-        self.total_torque_record_MTML = []
-        self.internal_torque_record_MTMR = []
-        self.total_torque_record_MTMR = []
-        self.internal_torque_record_PSM = []
-        self.total_torque_record_PSM = []
-
-        self.total_force_MTML = []
-        self.internal_force_MTML = []
-        self.total_force_MTMR = []
-        self.internal_force_MTMR = []
-        self.total_force_PSM = []
-        self.internal_force_PSM = []
-
-
     # average rotation by quaternion
     def average_rotation(self, rotation1, rotation2, alpha=0.5):
         # transfrom into quaternion
@@ -122,6 +99,19 @@ class teleoperation:
         # average and norm
         mean_quat = alpha * quat1 + (1-alpha) * quat2
         mean_quat /= numpy.linalg.norm(mean_quat)
+
+        # # transform into rotation matrix
+        # angle = 2 * numpy.arccos(mean_quat[3])
+        # s = numpy.sqrt(1 - mean_quat[3] ** 2)
+
+        # if s < 1e-8:
+        #     axis = numpy.array([1.0, 0.0, 0.0])
+        # else:
+        #     axis = numpy.array([mean_quat[0], mean_quat[1], mean_quat[2]]) / s
+        
+
+
+
         return PyKDL.Rotation.Quaternion(mean_quat[0], mean_quat[1], mean_quat[2], mean_quat[3])
 
     # callback for operator pedal/button
@@ -141,12 +131,6 @@ class teleoperation:
     # compute relative orientation of mtm2 and psm
     def alignment_offset_master2(self):
         return self.master2.measured_cp()[0].M.Inverse() * self.puppet.setpoint_cp()[0].M
-    
-    ######################################################################################
-    # compute relative orientation of mtm1 and mtm2
-    def alignment_offset_master1_to_master2(self):
-        return self.master1.measured_cp()[0].M.Inverse() * self.master2.measured_cp()[0].M
-    ######################################################################################
 
     # set relative origins for clutching and alignment offset
     def update_initial_state(self):
@@ -156,11 +140,8 @@ class teleoperation:
 
         self.alignment_offset_initial_master1 = self.alignment_offset_master1()
         self.alignment_offset_initial_master2 = self.alignment_offset_master2()
-        self.alignment_offset_initial_masters = self.alignment_offset_master1_to_master2()
-
         self.master1_offset_angle, self.master1_offset_axis = self.alignment_offset_initial_master1.GetRotAngle()
         self.master2_offset_angle, self.master2_offset_axis = self.alignment_offset_initial_master2.GetRotAngle()
-        self.masters_offset_angle, self.masters_offset_axis = self.alignment_offset_initial_masters.GetRotAngle()
 
     def gripper_to_jaw(self, gripper_angle):
         jaw_angle = self.gripper_to_jaw_scale * gripper_angle + self.gripper_to_jaw_offset
@@ -187,8 +168,8 @@ class teleoperation:
         self.last_align = None
         self.last_operator_prompt = time.perf_counter()
 
-        self.master1.use_gravity_compensation(False)
-        self.master2.use_gravity_compensation(False)
+        self.master1.use_gravity_compensation(True)
+        self.master2.use_gravity_compensation(True)
         self.puppet.hold()
 
         # reset operator activity data in case operator is inactive
@@ -204,15 +185,9 @@ class teleoperation:
 
         master1_orientation_error, _ = self.alignment_offset_master1().GetRotAngle()
         master2_orientation_error, _ = self.alignment_offset_master2().GetRotAngle()
-        # aligned = master1_orientation_error <= self.operator_orientation_tolerance or master2_orientation_error <= self.operator_orientation_tolerance
-        aligned = master1_orientation_error <= self.operator_orientation_tolerance
-        print(f"master1_orientation_error is {master1_orientation_error}")
-        # aligned = True
-        print(f"aligned {aligned}")
-        print(f"operator_is_active {self.operator_is_active}")
+        aligned = master1_orientation_error <= self.operator_orientation_tolerance and master2_orientation_error <= self.operator_orientation_tolerance
         if aligned and self.operator_is_active:
             self.enter_following()
-            print("enter following")
 
     def run_aligning(self):
         master1_orientation_error, _ = self.alignment_offset_master1().GetRotAngle()
@@ -223,14 +198,9 @@ class teleoperation:
             master1_gripper = self.master1.gripper.measured_js()[0][0]
             master2_gripper = self.master2.gripper.measured_js()[0][0]
             
-            self.operator_gripper_max = max(master1_gripper, self.operator_gripper_max)
-            self.operator_gripper_min = min(master1_gripper, self.operator_gripper_min)
-            master1_gripper_range = self.operator_gripper_max - self.operator_gripper_min
-            # master1_gripper_range = max(master1_gripper, self.operator_gripper_max) - min(master1_gripper, self.operator_gripper_min)
-            # master2_gripper_range = max(master2_gripper, self.operator_gripper_max) - min(master2_gripper, self.operator_gripper_min)
-            # if master1_gripper_range >= self.operator_gripper_threshold or master2_gripper_range >= self.operator_gripper_threshold:
-            print(f"master1_gripper_range {master1_gripper_range}")
-            if master1_gripper_range >= self.operator_gripper_threshold:
+            master1_gripper_range = max(master1_gripper, self.operator_gripper_max) - min(master1_gripper, self.operator_gripper_min)
+            master2_gripper_range = max(master2_gripper, self.operator_gripper_max) - min(master2_gripper, self.operator_gripper_min)
+            if master1_gripper_range >= self.operator_gripper_threshold or master2_gripper_range >= self.operator_gripper_threshold:
                 self.operator_is_active = True
 
             # determine amount of roll around z axis by rotation of y-axis
@@ -241,14 +211,9 @@ class teleoperation:
             roll_1 = math.acos(PyKDL.dot(puppet_y_axis, master1_y_axis))
             roll_2 = math.acos(PyKDL.dot(puppet_y_axis, master2_y_axis))
 
-            self.operator_roll_max = max(roll_1, self.operator_roll_max)
-            self.operator_roll_min = min(roll_1, self.operator_roll_min)
-            master1_roll_range = self.operator_roll_max - self.operator_roll_min
-            # master1_roll_range = max(roll_1, self.operator_roll_max) - min(roll_1, self.operator_roll_min)
-            # master2_roll_range = max(roll_2, self.operator_roll_max) - min(roll_2, self.operator_roll_min)
-            # if master1_roll_range >= self.operator_roll_threshold or master2_roll_range >= self.operator_roll_threshold:
-            print(f"master1_roll_range {master1_roll_range}")
-            if master1_roll_range >= self.operator_roll_threshold:
+            master1_roll_range = max(roll_1, self.operator_roll_max) - min(roll_1, self.operator_roll_min)
+            master2_roll_range = max(roll_2, self.operator_roll_max) - min(roll_2, self.operator_roll_min)
+            if master1_roll_range >= self.operator_roll_threshold or master2_roll_range >= self.operator_roll_threshold:
                 self.operator_is_active = True
 
         # periodically send move_cp to MTM to align with PSM
@@ -290,15 +255,7 @@ class teleoperation:
 
     def run_clutched(self):
         # let arm move freely
-        wrench = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        self.master1.body.servo_cf(wrench)
-        self.master2.body.servo_cf(wrench)
-        self.master1.lock_orientation(self.master1.measured_cp()[0].M)
-        self.master2.lock_orientation(self.master2.measured_cp()[0].M)
-
-        self.puppet.hold()
-
-        #pass
+        pass
 
     def enter_following(self):
         self.current_state = teleoperation.State.FOLLOWING
@@ -312,8 +269,8 @@ class teleoperation:
             self.running = False
         self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint[0])
 
-        self.master1.use_gravity_compensation(False)
-        self.master2.use_gravity_compensation(False)
+        self.master1.use_gravity_compensation(True)
+        self.master2.use_gravity_compensation(True)
 
     def transition_following(self):
         if not self.operator_is_present:
@@ -321,134 +278,29 @@ class teleoperation:
         elif self.clutch_pressed:
             self.enter_clutched()
 
-    def externalforce_prediction(self, component):
-        # measured_js returns 6 joints for PSM, 7 joints for MTM
-        measured_js = component.measured_js()
-        q = measured_js[0][:6]
-        dq = measured_js[1][:6]
-        total_torque = measured_js[2][:6]
-        print(f"{component} measured_js is: {measured_js[2]}")
-
-        # normalize input
-        first_input = numpy.concatenate((q[0:3], dq[0:3]))
-        last_input = numpy.concatenate((q[3:6], dq[3:6]))
-
-        # print(f"input mean is: {component.firstmodel.input_mean}")
-        # print(f"input std is: {component.firstmodel.input_std}")
-        first_input = (first_input - component.firstmodel.input_mean) / component.firstmodel.input_std
-        last_input = (last_input - component.lastmodel.input_mean) / component.lastmodel.input_std
-
-        first_input = numpy.expand_dims(first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-        last_input = numpy.expand_dims(last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-        if component == self.master1:
-            self.queue_MTML_first3 = numpy.concatenate((self.queue_MTML_first3, first_input), axis=1)
-            self.queue_MTML_last3 = numpy.concatenate((self.queue_MTML_last3, last_input), axis = 1)
-            self.queue_MTML_first3 = self.queue_MTML_first3[:, 1:, :]
-            self.queue_MTML_last3 = self.queue_MTML_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTML_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTML_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-        elif component == self.master2:
-            self.queue_MTMR_first3 = numpy.concatenate((self.queue_MTMR_first3, first_input), axis=1)
-            self.queue_MTMR_last3 = numpy.concatenate((self.queue_MTMR_last3, last_input), axis = 1)
-            self.queue_MTMR_first3 = self.queue_MTMR_first3[:, 1:, :]
-            self.queue_MTMR_last3 = self.queue_MTMR_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-        else:
-            self.queue_PSM_first3 = numpy.concatenate((self.queue_PSM_first3, first_input), axis=1)
-            self.queue_PSM_last3 = numpy.concatenate((self.queue_PSM_last3, last_input), axis = 1)
-            self.queue_PSM_first3 = self.queue_PSM_first3[:, 1:, :]
-            self.queue_PSM_last3 = self.queue_PSM_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_PSM_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_PSM_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-
-        # denormalize output
-        torque_Joint1_3 = first_ort_outs[0]
-        torque_Joint4_6 = last_ort_outs[0]
-
-        torque_Joint1_3 = torque_Joint1_3 * component.firstmodel.target_std + component.firstmodel.target_mean
-        torque_Joint4_6 = torque_Joint4_6 * component.lastmodel.target_std + component.lastmodel.target_mean
-
-        internal_torque = numpy.hstack((torque_Joint1_3, torque_Joint4_6))
-        external_torque = (total_torque - internal_torque)
-
-        # convert to cartesian force
-        if isinstance(component, MTM):
-            external_torque = numpy.concatenate((external_torque, numpy.array([[measured_js[2][6]]])), axis=1)
-            internal_torque = numpy.concatenate((internal_torque, numpy.array([[measured_js[2][6]]])), axis=1)
-        J = component.body.jacobian()   # shape (6,7) of MTM and (6,6) of PSM
-        external_force = numpy.linalg.pinv(J.T) @ external_torque.T
-
-        """ recored inferred force for plot """
-        # internal_force = numpy.linalg.pinv(J.T) @ internal_torque.T
-        # # print(f"internal force: {internal_force}")
-        # # print(f"internal force shape: {internal_force.shape}")
-        # if component == self.puppet:
-        #     self.internal_torque_record_PSM.append(internal_torque.reshape(-1).tolist())
-        #     self.total_torque_record_PSM.append(total_torque)
-        #     self.internal_force_PSM.append(internal_force.reshape(-1).tolist())
-  
-        # elif component == self.master1:
-        #     self.internal_torque_record_MTML.append(internal_torque.reshape(-1).tolist())
-        #     self.total_torque_record_MTML.append(total_torque)
-        #     self.internal_force_MTML.append(internal_force.reshape(-1).tolist())
-
-        # else:
-        #     self.internal_torque_record_MTMR.append(internal_torque.reshape(-1).tolist())
-        #     self.total_torque_record_MTMR.append(total_torque)
-        #     self.internal_force_MTMR.append(internal_force.reshape(-1).tolist())
-   
-        return external_force
-
-
     def run_following(self):               
         """
         Forward Process
         """
         # Force channel
-        """ recorde cartesian force for plot """
-        master1_measured_cf = self.master1.body.measured_cf()[0]
-        master2_measured_cf = self.master2.body.measured_cf()[0]
-        puppet_measured_cf = self.puppet.body.measured_cf()[0]
-        """  """
-
         # master1
-        master1_external_f = self.externalforce_prediction(self.master1)   # (6,) numpy array
-        master1_external_f[0:3] *= -1.0
-        master1_external_f[3:6] *= 0   # turn off torque
+        master1_measured_cf = self.master1.body.measured_cf()[0]   # (6,) numpy array
+        master1_measured_cf[0:3] *= -1.0
+        master1_measured_cf[3:6] *= 0   # turn off torque
 
         # master2
-        master2_external_f = self.externalforce_prediction(self.master2)   # (6,) numpy array
-        master2_external_f[0:3] *= -1.0
-        master2_external_f[3:6] *= 0  # turn off torque
+        master2_measured_cf = self.master2.body.measured_cf()[0]   # (6,) numpy array
+        master2_measured_cf[0:3] *= -1.0
+        master2_measured_cf[3:6] *= 0   # turn off torque
 
         # puppet
-        puppet_external_f = self.externalforce_prediction(self.puppet)   # (6,) numpy array
-        puppet_external_f[0:3] *= -1.0
-        puppet_external_f[3:6] *= 0
+        puppet_measured_cf = self.puppet.body.measured_cf()[0]
+        puppet_measured_cf[0:3] *= -1.0
+        puppet_measured_cf[3:6] *= 0
 
         # force input
-        gamma = 0.6
-        force_goal = 0.2 * (self.beta * master1_external_f + (1 - self.beta) * master2_external_f + gamma * puppet_external_f)
-        print(f"force_goal: {force_goal}")
-        print(f"force_goal type: {type(force_goal[0])}")
-        print("")
-        force_goal = force_goal.reshape(-1)
+        gamma = 0.2
+        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
         force_goal = force_goal.tolist()
 
 
@@ -556,51 +408,17 @@ class teleoperation:
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
-        """
-        record measured cartesian force
-        """
-        self.total_force_MTML.append(master1_measured_cf)
-        self.total_force_MTMR.append(master2_measured_cf)
-        self.total_force_PSM.append(puppet_measured_cf)
-        self.a += 1
 
-        """
-        record external force and position tracking
-        """
-        self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
-        self.y_data_l_expected.append([puppet_position.x(), puppet_position.y(), puppet_position.z()])
+        # """
+        # plot
+        # """
+        # self.y_data_l.append([puppet_measured_cp.p.x(), puppet_measured_cp.p.y(), puppet_measured_cp.p.z()])
+        # self.y_data_l_expected.append([puppet_position.p.x(), puppet_position.p.y(), puppet_position.p.z()])
 
-        self.m1_force.append(master1_external_f.reshape(-1))
-        self.m2_force.append(master2_external_f.reshape(-1))
-        self.puppet_force.append(puppet_external_f.reshape(-1))
-        self.a += 1
-
-        if self.a == 4000:
-            # # joint
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTMR_internal_torque_0704.txt', self.internal_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTMR_total_torque_0704.txt', self.total_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTML_internal_torque_0704.txt', self.internal_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTML_total_torque_0704.txt', self.total_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/PSM_internal_torque_0704.txt', self.internal_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/PSM_total_torque_0704.txt', self.total_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-
-            # # cartesian
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTML_cartesian_total_force_0704.txt', self.total_force_MTML, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTMR_cartesian_total_force_0704.txt', self.total_force_MTMR, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/PSM_cartesian_total_force_0704.txt', self.total_force_PSM, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTML_cartesian_internal_force_0704.txt', self.internal_force_MTML, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/MTMR_cartesian_internal_force_0704.txt', self.internal_force_MTMR, fmt='%f', delimiter=' ', comments='')
-            # numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/PSM_cartesian_internal_force_0704.txt', self.internal_force_PSM, fmt='%f', delimiter=' ', comments='')
-            print(f"Program finished!" * 30)
-
-            # # save data
-            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-
-
+        # self.m1_force.append(master1_measured_cf)
+        # self.m2_force.append(master2_measured_cf)
+        # self.puppet_force.append(puppet_measured_cf)
+        # self.a += 1
 
 
     def home(self):
@@ -671,33 +489,29 @@ class teleoperation:
 
             teleop_rate.sleep()
 
+        # # save data
+        # numpy.savetxt('multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        # numpy.savetxt('multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+
         print(f"Program finished!")
 
 class MTM:
             
-    class Body:
+    class ServoMeasCF:
         def __init__(self, ral, timeout):
             self.utils = crtk.utils(self, ral, timeout)
             self.utils.add_servo_cf()
             self.utils.add_measured_cf()
-            self.utils.add_jacobian()
 
     class Gripper:
         def __init__(self, ral, timeout):
             self.utils = crtk.utils(self, ral, timeout)
             self.utils.add_measured_js()
-    
-    class LoadModel:
-        def __init__(self, onnx_path, param_path):
-            self.ort_session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
-            norm_data = numpy.load(param_path)
-            self.input_mean = norm_data['input_mean']
-            self.input_std = norm_data['input_std']
-            self.target_mean = norm_data['target_mean']
-            self.target_std = norm_data['target_std']
-            self.seq_len = norm_data['seq_len']
 
-    def __init__(self, ral, arm_name, timeout, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None):
+    def __init__(self, ral, arm_name, timeout):
         self.name = arm_name
         self.ral = ral.create_child(arm_name)
         self.utils = crtk.utils(self, self.ral, timeout)
@@ -708,17 +522,9 @@ class MTM:
         self.utils.add_setpoint_cp()
         self.utils.add_move_cp()
         self.utils.add_servo_cs()
-        self.utils.add_measured_js()
-
-        # load onnx model
-        if firstjoints_onnxpath is not None and firstjoints_parampath is not None:
-            self.firstmodel = self.LoadModel(firstjoints_onnxpath, firstjoints_parampath)
-
-        if lastjoints_onnxpath is not None and lastjoints_parampath is not None:
-            self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
 
         self.gripper = self.Gripper(self.ral.create_child('gripper'), timeout)
-        self.body = self.Body(self.ral.create_child('body'), timeout)
+        self.body = self.ServoMeasCF(self.ral.create_child('body'), timeout)
 
         # non-CRTK topics
         self.lock_orientation_pub = self.ral.publisher('lock_orientation',
@@ -746,12 +552,10 @@ class MTM:
         self.use_gravity_compensation_pub.publish(msg)
 
 class PSM:
-    class Body:
+    class MeasureCF:
         def __init__(self, ral, timeout):
             self.utils = crtk.utils(self, ral, timeout)
             self.utils.add_measured_cf()
-            self.utils.add_jacobian()
-
     class MeasuredCP:
         def __init__(self,ral,timeout):
             self.utils = crtk.utils(self,ral,timeout)
@@ -761,17 +565,8 @@ class PSM:
             self.utils = crtk.utils(self, ral, timeout)
             self.utils.add_setpoint_js()
             self.utils.add_servo_jp()
-    
-    class LoadModel:
-        def __init__(self, onnx_path, param_path):
-            self.ort_session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
-            norm_data = numpy.load(param_path)
-            self.input_mean = norm_data['input_mean']
-            self.input_std = norm_data['input_std']
-            self.target_mean = norm_data['target_mean']
-            self.target_std = norm_data['target_std']
 
-    def __init__(self, ral, arm_name, timeout, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None):
+    def __init__(self, ral, arm_name, timeout):
         self.name = arm_name
         self.ral = ral.create_child(arm_name)
         self.utils = crtk.utils(self, self.ral, timeout)
@@ -784,16 +579,8 @@ class PSM:
         self.utils.add_measured_cv()
         self.utils.add_move_jp()
         self.utils.add_measured_cp()
-        self.utils.add_measured_js()
 
-        # load onnx model
-        if firstjoints_onnxpath is not None and firstjoints_parampath is not None:
-            self.firstmodel = self.LoadModel(firstjoints_onnxpath, firstjoints_parampath)
-
-        if lastjoints_onnxpath is not None and lastjoints_parampath is not None:
-            self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
-
-        self.body = self.Body(self.ral.create_child('body'), timeout)
+        self.body = self.MeasureCF(self.ral.create_child('body'), timeout)
         self.local = self.MeasuredCP(self.ral.create_child('local'),timeout)
         self.jaw = self.Jaw(self.ral.create_child('jaw'), timeout)
 
@@ -823,18 +610,9 @@ if __name__ == '__main__':
     args = parser.parse_args(argv)
 
     ral = crtk.ral('dvrk_python_teleoperation')
-    path_root = "/home/pshao7/dvrk_python_devel/cis2_project/cis2_project/model/training_results/Model_0704/"
-    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval, firstjoints_onnxpath=path_root+"best-master1-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master1-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master1-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master1-strong-Last-stat_params.npz")
-    
-    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval, firstjoints_onnxpath=path_root+"best-master2-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master2-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master2-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master2-strong-Last-stat_params.npz")
-    
-    psm = PSM(ral, args.psm, timeout=20*args.interval, firstjoints_onnxpath=path_root+"best-puppet-strong-First.onnx", 
-               firstjoints_parampath=path_root+"puppet-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-puppet-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"puppet-strong-Last-stat_params.npz")
+    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval)
+    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval)
+    psm = PSM(ral, args.psm, timeout=20*args.interval)
     application = teleoperation(ral, mtm1, mtm2, psm, args.clutch, args.interval,
                                 not args.no_mtm_alignment, operator_present_topic = args.operator, alpha = 0.5, beta = 0.5)
      
