@@ -14,7 +14,7 @@
 # --- end cisst license ---
 
 """ Multilateral teleoperation single system - Wrapper version """
-""" Hub structure """
+""" Strong connected structure """
 
 import argparse
 import time
@@ -155,6 +155,15 @@ class teleoperation:
         _, puppet_rotation = self.puppet.setpoint_cp()
         alignment_offset = numpy.linalg.inv(master2_rotation) @ puppet_rotation
         return alignment_offset
+    
+    ############################################################################
+    # compute relative orientation of mtm1 and mtm2
+    def alignment_offset_master1_to_master2(self):
+        _, master1_rotation = self.master1.measured_cp()
+        _, master2_rotation = self.master2.measured_cp()
+        alignment_offset = numpy.linalg.inv(master1_rotation) @ master2_rotation
+        return alignment_offset
+    ############################################################################
 
     # set relative origins for clutching and alignment offset
     def update_initial_state(self):
@@ -172,12 +181,14 @@ class teleoperation:
 
         self.alignment_offset_initial_master1 = self.alignment_offset_master1()
         self.alignment_offset_initial_master2 = self.alignment_offset_master2()
+        self.alignment_offset_initial_masters = self.alignment_offset_master1_to_master2()    # Used for strong-connected archit.
+
         self.master1_offset_angle, self.master1_offset_axis = self.GetRotAngle(self.alignment_offset_initial_master1)
         self.master2_offset_angle, self.master2_offset_axis = self.GetRotAngle(self.alignment_offset_initial_master2)
+        self.masters_offset_angle, self.masters_offset_axis = self.GetRotAngle(self.alignment_offset_initial_masters)    # Used for strong-connected archit.
 
     def gripper_to_jaw(self, gripper_angle):
         jaw_angle = self.gripper_to_jaw_scale * gripper_angle + self.gripper_to_jaw_offset
-
         # make sure we don't set goal past joint limits
         return max(jaw_angle, self.jaw_min)
 
@@ -447,16 +458,26 @@ class teleoperation:
         puppet_measured_trans, puppet_measured_rot = self.puppet.measured_cp()
         puppet_translation = puppet_measured_trans - puppet_initial_trans     ##### should it update puppet initial cartesian after forward process???
         puppet_translation /= self.scale
+        master1_translation /= self.scale
+        master2_translation /= self.scale
 
         # set translation of mtm1
-        master1_position = puppet_translation + master1_initial_trans
+        master1_translation_goal = (master2_translation + puppet_translation) / 2.0
+        master1_position = master1_translation_goal + master1_initial_trans
         # set translation of mtm2
-        master2_position = puppet_translation + master2_initial_trans
+        master2_translation_goal = (master1_translation + puppet_translation) / 2.0
+        master2_position = master2_translation_goal + master2_initial_trans
 
         # set rotation of mtm1
-        master1_rotation = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
+        master2_rotation_alignment_ToMaster1 = master2_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
+        puppet_rotation_alignment_ToMaster1 = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
         # set rotation of mtm2
-        master2_rotation = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
+        master1_rotation_alignment_ToMaster2 = master1_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
+        puppet_rotation_alignment_ToMaster2 = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
+
+        # average rotation
+        master1_rotation = self.average_rotation(master2_rotation_alignment_ToMaster1, puppet_rotation_alignment_ToMaster1)
+        master2_rotation = self.average_rotation(master1_rotation_alignment_ToMaster2, puppet_rotation_alignment_ToMaster2)
 
         # set cartesian goal of mtm1 and mtm2
         master1_cartesian_goal = self.set_vctFrm3(rotation=master1_rotation, translation=master1_position)
@@ -467,8 +488,13 @@ class teleoperation:
         puppet_measured_cv = self.puppet.measured_cv()   # (6,) numpy array
         puppet_measured_cv[0:3] /= self.velocity_scale      # scale the linear velocity
         puppet_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
-        master1_velocity_goal = puppet_measured_cv
-        master2_velocity_goal = puppet_measured_cv
+
+        master1_measured_cv[0:3] /= self.velocity_scale
+        master2_measured_cv[0:3] /= self.velocity_scale
+
+        # set velocity goal
+        master1_velocity_goal = (puppet_measured_cv + master2_measured_cv) / 2.0
+        master2_velocity_goal = (puppet_measured_cv + master1_measured_cv) / 2.0
 
 
         # Move
@@ -476,19 +502,15 @@ class teleoperation:
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
         """
-        plot
+        record plotting data
         """
         self.y_data_l.append(puppet_measured_trans.copy())
         self.y_data_l_expected.append(puppet_position.copy())
-        # print(f"master1 measured_cf: {master1_measured_cf}")
         self.m1_force.append(master1_measured_cf.copy())
         self.m2_force.append(master2_measured_cf.copy())
         self.puppet_force.append(puppet_measured_cf.copy())
         self.a += 1
 
-
-
-        
 
     def home(self):
         print("Homing arms...")
@@ -579,7 +601,7 @@ class teleoperation:
         numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
         numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
         numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-        print(f"txt saved!")
+        print(f"data.txt saved!")
 
 class ARM:
     def __init__(self, arm, name):
