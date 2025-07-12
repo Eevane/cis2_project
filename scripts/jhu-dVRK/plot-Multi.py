@@ -2,15 +2,14 @@ import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
 
-file_path = '0704'
-true_pos = np.loadtxt(f'/home/pshao7/dvrk_python_devel/dataset/multi_array.txt', skiprows=1)
-expect_pos = np.loadtxt(f'/home/pshao7/dvrk_python_devel/dataset/multi_array_exp.txt', skiprows=1)
-gamma = -0.6
+true_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/multi_array.txt', skiprows=1)
+expect_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/multi_array_exp.txt', skiprows=1)
+gamma = -0.714
 beta = 0.5
 
-m1_force = np.loadtxt(f'/home/pshao7/dvrk_python_devel/dataset/multi_m1_force.txt', skiprows=1, usecols=(0, 1, 2))
-m2_force = np.loadtxt(f'/home/pshao7/dvrk_python_devel/dataset/multi_m2_force.txt', skiprows=1, usecols=(0, 1, 2))
-puppet_force = np.loadtxt(f'/home/pshao7/dvrk_python_devel/dataset/multi_puppet_force.txt', skiprows=1, usecols=(0, 1, 2))
+m1_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/MTML_total_force.txt', skiprows=1, usecols=(0, 1, 2))
+m2_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/MTMR_total_force.txt', skiprows=1, usecols=(0, 1, 2))
+puppet_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/PSM_total_force.txt', skiprows=1, usecols=(0, 1, 2))
 total_force = beta * m1_force + (1-beta) * m2_force
 puppet_force = gamma * puppet_force
 
@@ -27,11 +26,11 @@ total_force_norm = beta * m1_force_norm + (1-beta) * m2_force_norm
 num = len(m1_force)
 x = np.arange(num) * 0.002
 
-# # RMSE for pos
-# std_pos = np.std(true_pos, axis=0)
-# rmse_pos = np.sqrt(np.mean((true_pos - expect_pos)**2, axis=0))
-# print(f"rmse of pos: {rmse_pos*1000} mm")
-# print("")
+# RMSE for pos
+std_pos = np.std(true_pos, axis=0)
+rmse_pos = np.sqrt(np.mean((true_pos - expect_pos)**2, axis=0))
+print(f"rmse of pos: {rmse_pos*1000} mm")
+print("")
 
 # Normalized-RMSE for force (divided by range)
 force_max = np.max(puppet_force, axis=0)

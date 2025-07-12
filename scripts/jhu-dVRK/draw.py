@@ -2,11 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the data from two text files
-file1 = '/home/pshao7/dvrk_python_devel/dataset/MTML_internal_torque_0704.txt'
-file2 = '/home/pshao7/dvrk_python_devel/dataset/MTML_total_torque_0704.txt'
+file1 = '/home/xle6/dvrk_teleop_data/July_11/PSM_internal.txt'
+file2 = '/home/xle6/dvrk_teleop_data/July_11/PSM_total.txt'
 
-predicted_force = '/home/pshao7/dvrk_python_devel/dataset/MTML_cartesian_internal_force_0704.txt'
-measured_force = '/home/pshao7/dvrk_python_devel/dataset/MTML_cartesian_total_force_0704.txt'
+predicted_force = '/home/xle6/dvrk_teleop_data/July_11/PSM_force.txt'
+measured_force = '/home/xle6/dvrk_teleop_data/July_11/PSM_total_force.txt'
 
 # Load assuming space-separated values
 data1 = np.loadtxt(file1, usecols=(0, 1, 2, 3, 4, 5))
