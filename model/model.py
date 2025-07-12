@@ -82,13 +82,14 @@ class JointLSTMModel(nn.Module):
         self.fc2 = nn.Sequential(nn.Linear(256, 128), nn.LayerNorm(128), nn.ReLU(True))
         self.fc3 = nn.Sequential(nn.Linear(128, 64), nn.LayerNorm(64), nn.ReLU(True))
         self.regression = nn.Linear(64, output_size)
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
         #print("x shape:", x.shape) 
-        lstm_out, _ = self.lstm(x)   # -> (batch_size, seq_len, input_size)
-        last_time_step = lstm_out[:, -1, :]
-        x = self.dropout(self.fc1(last_time_step))
+        lstm_out, _ = self.lstm(x)   # -> (batch_size, seq_len, hidden_size)
+        #last_time_step = lstm_out[:, -1, :]
+        pooled = torch.mean(lstm_out,dim=1)
+        x = self.dropout(self.fc1(pooled))
         x = self.dropout(self.fc2(x))
         x = self.dropout(self.fc3(x))
         x = self.regression(x)
@@ -112,6 +113,7 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
             outputs = model(x)
             loss = criterion(outputs, y)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             running_loss += loss.item()
@@ -160,17 +162,17 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
 
 
 if __name__ == "__main__":
-    component = 'master1-strong-First'
-    training_file_path = f"../../Dataset/train_0704/{component}ThreeJoints.csv"
-    output_path = "training_results/0704"
+    component = 'puppet-Last'
+    training_file_path = f"../../Dataset/train_0711/{component}ThreeJoints.csv"
+    output_path = "../../Dataset/checkpoints/0711"
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
     batch_size = 64
-    lr = 1e-4
-    num_epochs = 60
-    seq_len= 10
+    lr = 5e-5
+    num_epochs = 25
+    seq_len= 50
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train')
@@ -181,8 +183,9 @@ if __name__ == "__main__":
     testing_dataloader = DataLoader(testing_dataset, batch_size=batch_size, shuffle=False)
 
     model = JointLSTMModel()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
+    #criterion = nn.MSELoss()
+    criterion = torch.nn.SmoothL1Loss()
 
     # save statistics info
     np.savez(f"{output_path}/{component}-stat_params.npz",
