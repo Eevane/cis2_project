@@ -595,14 +595,14 @@ class ARM:
         cartesian_position = measure_cp.Position()
         cartesian_orientation = cartesian_position.GetRotation()
         cartesian_translation = cartesian_position.GetTranslation()
-        return cartesian_translation.copy(), cartesian_orientation.copy()
+        return cartesian_translation, cartesian_orientation
 
     def setpoint_cp(self):
         setpoint_cp = self.arm.setpoint_cp()
         cartesian_position = setpoint_cp.Position()
         cartesian_orientation = cartesian_position.GetRotation()
         cartesian_translation = cartesian_position.GetTranslation()
-        return cartesian_translation.copy(), cartesian_orientation.copy()
+        return cartesian_translation, cartesian_orientation
     
     def measured_cv(self):
         measured_cv = self.arm.measured_cv()
@@ -614,19 +614,19 @@ class ARM:
     def body_measured_cf(self):
         body_measured_cf = self.arm.body.measured_cf()
         body_force = body_measured_cf.Force()
-        return body_force.copy()
+        return body_force
 
     def gripper_measured_js(self):
         assert self.name in ("MTML", "MTMR")
         gripper = self.arm.gripper.measured_js()
         gripper_position = gripper.Position()
-        return gripper_position.copy()
+        return gripper_position
     
     def jaw_setpoint_js(self):
         assert self.name in ("PSM1", "PSM2")
         jaw = self.arm.jaw.setpoint_js()
         jaw_setpoint = jaw.Position()
-        return jaw_setpoint.copy()
+        return jaw_setpoint
        
     def jaw_servo_jp(self, goal):
         assert self.name in ("PSM1", "PSM2")

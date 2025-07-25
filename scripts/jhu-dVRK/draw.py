@@ -2,11 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the data from two text files
-file1 = '/home/xle6/dvrk_teleop_data/July_11/PSM_internal.txt'
-file2 = '/home/xle6/dvrk_teleop_data/July_11/PSM_total.txt'
+file1 = '/home/xle6/dvrk_teleop_data/July_11/MTML_internal.txt'
+file2 = '/home/xle6/dvrk_teleop_data/July_11/MTML_total.txt'
 
-predicted_force = '/home/xle6/dvrk_teleop_data/July_11/PSM_force.txt'
-measured_force = '/home/xle6/dvrk_teleop_data/July_11/PSM_total_force.txt'
+predicted_force = '/home/xle6/dvrk_teleop_data/July_11/MTML_force.txt'
+measured_force = '/home/xle6/dvrk_teleop_data/July_11/MTML_total_force.txt'
 
 # Load assuming space-separated values
 data1 = np.loadtxt(file1, usecols=(0, 1, 2, 3, 4, 5))
@@ -30,7 +30,7 @@ fig.suptitle('Joint Angles and Their Differences', fontsize=16)
 for i in range(data1.shape[1]):
     axs[i].plot(timesteps, data1[:, i], label='predicted', color='blue')
     axs[i].plot(timesteps, data2[:, i], label='measured', color='orange')
-    #axs[i].plot(timesteps, diff[:, i], label='Difference', color='green', linestyle='--')
+    axs[i].plot(timesteps, diff[:, i], label='Difference', color='green', linestyle='--')
     axs[i].set_ylabel(joint_labels[i])
     axs[i].legend(loc='upper right')
     axs[i].grid(True)

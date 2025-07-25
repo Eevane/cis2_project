@@ -1,0 +1,114 @@
+/* -*- Mode: Javascript; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+{
+    "IOs":
+    [
+        {
+            "name": "IO_1",
+            "port": "fw",
+            "protocol": "broadcast-query-read-write"
+        }
+    ]
+    ,
+    "arms":
+    [
+        {
+            "name": "PSM1",
+            "type": "PSM",
+            "IO": "IO_1",
+      //      "IO_file": "/home/xle6/dvrk_teleop_data/sawRobotIO1394-PSM1-28007.xml",
+            "serial": "28007",
+            "pid": "/home/xle6/dvrk_teleop_data/sawControllersPID-PSM-diston.json",
+            "base_frame": {
+                "reference_frame": "ECM",
+                "transform": [[  1.0,  0.0,          0.0,         -0.20],
+                              [  0.0, -0.866025404,  0.5,          0.0 ],
+                              [  0.0, -0.5,         -0.866025404,  0.0 ],
+                              [  0.0,  0.0,          0.0,          1.0 ]]
+            }
+        }
+        ,
+       // {
+       //     "name": "PSM2",
+       //     "type": "PSM",
+       //     "IO": "IO_1",
+       //     "serial": "27374",
+       //     "pid": "/home/xle6/dvrk_teleop_data/sawControllersPID-PSM.json",
+       //     "base_frame": {
+       //         "reference_frame": "ECM",
+       //         "transform": [[  1.0,  0.0,          0.0,          0.20],
+       //                       [  0.0, -0.866025404,  0.5,          0.0 ],
+       //                       [  0.0, -0.5,         -0.866025404,  0.0 ],
+       //                       [  0.0,  0.0,          0.0,          1.0 ]]
+       //     }
+      //  }
+      //  ,
+        {
+            "name": "MTML",
+            "type": "MTM",
+            "IO": "IO_1",
+        //    "IO_file": "/home/xle6/dvrk_teleop_data/sawRobotIO1394-MTML-22723.xml",
+            "serial": "22723",
+            "pid": "/home/xle6/dvrk_teleop_data/sawControllersPID-MTM-diston.json",
+            "base_frame": {
+                "reference_frame": "HRSV",
+                "transform": [[ -1.0,  0.0,          0.0,          0.180],
+                              [  0.0,  0.866025404,  0.5,          0.400],
+                              [  0.0,  0.5,         -0.866025404,  0.475],
+                              [  0.0,  0.0,          0.0,          1.0]]
+            }
+        }
+        ,
+        {
+            "name": "MTMR",
+            "type": "MTM",
+            "serial": "28247",
+            "IO": "IO_1",
+        //    "IO_file": "/home/xle6/dvrk_teleop_data/sawRobotIO1394-MTMR-28247.xml",
+            "pid": "/home/xle6/dvrk_teleop_data/sawControllersPID-MTM-diston.json",
+            "base_frame": {
+                "reference_frame": "HRSV",
+                "transform": [[ -1.0,  0.0,          0.0,         -0.180],
+                              [  0.0,  0.866025404,  0.5,          0.400],
+                              [  0.0,  0.5,         -0.866025404,  0.475],
+                              [  0.0,  0.0,          0.0,          1.0]]
+            }
+        }
+
+    ]
+    ,
+    "consoles":
+    [
+        {
+            "name": "console1",
+            "input_type": "PEDALS_ONLY",
+            "IO_pedals" :
+            {
+                "IO": "IO_1",
+                "IO_file": "io/sawRobotIO1394-MTMR-foot-pedals.xml"
+            }
+            ,
+            "teleop_PSMs":
+            [
+                {
+                    "MTM": "MTML",
+                    "PSM": "PSM1"
+                }
+                ,
+                //{
+                //    "MTM": "MTML",
+                //    "PSM": "PSM2"
+                //}
+                //,
+                {
+                    "MTM": "MTMR",
+                    "PSM": "PSM1"
+                }
+               // ,
+               // {
+               //     "MTM": "MTMR",
+               //     "PSM": "PSM2"
+               // }
+            ]
+        }
+    ]
+}

@@ -86,13 +86,6 @@ class teleoperation:
         self.y_data_l_expected = []
 
         # network parameters setting ######################################################
-        self.queue_MTML_first3 = numpy.zeros((1, 10, 6))
-        self.queue_MTML_last3 = numpy.zeros((1, 10, 6))
-        self.queue_MTMR_first3 = numpy.zeros((1, 10, 6))
-        self.queue_MTMR_last3 = numpy.zeros((1, 10, 6))
-        self.queue_PSM_first3 = numpy.zeros((1, 10, 6))
-        self.queue_PSM_last3 = numpy.zeros((1, 10, 6))
-
         self.internal_torque_record_MTML= []
         self.total_torque_record_MTML = []
         self.internal_torque_record_MTMR = []
@@ -109,30 +102,9 @@ class teleoperation:
         #####################################################################################
 
         # control law gain
-        self.force_gain = 0.3
-        self.velocity_gain = 1.0
+        self.force_gain = 0.2
+        self.velocity_gain = 0.8
 
-    def set_velocity_goal(self, v, base=1.0, max_gain=1.3, threshold=0.01):
-        norm = numpy.linalg.norm(v)
-        if norm < threshold:
-            gain = max_gain
-        else:
-            gain = base + (max_gain - base) * (threshold / norm)
-            gain = min(gain, max_gain)
-        return v * gain
-
-
-    def velocity_gain_per_axis(v, base_gains=(1.0, 1.0, 1.0), max_gains=(1.3, 1.3, 1.3), thresholds=(0.01, 0.01, 0.01)):
-        scaled_v = numpy.zeros_like(v)
-        for i in range(3):
-            val = abs(v[i])
-            if val < thresholds[i]:
-                gain = max_gains[i]
-            else:
-                gain = base_gains[i] + (max_gains[i] - base_gains[i]) * (thresholds[i] / val)
-                gain = min(gain, max_gains[i])
-            scaled_v[i] = v[i] * gain
-        return scaled_v
 
     def set_vctFrm3(self, rotation=None, translation=None):
         vctFrm3 = cisstVector.vctFrm3()
@@ -412,57 +384,32 @@ class teleoperation:
         # print(f"{component.name} measured_jf is: {total_torque}")
 
         # normalize input
-        first_input = numpy.concatenate((q[0:3], dq[0:3]))
-        last_input = numpy.concatenate((q[3:6], dq[3:6]))
-
+        first_input = numpy.empty(6, dtype=numpy.float32)
+        first_input[0:3] = q[0:3]
+        first_input[3:6] = dq[0:3]
+        last_input = numpy.empty(6, dtype=numpy.float32)
+        last_input[0:3] = q[3:6]
+        last_input[3:6] = dq[3:6]
         # print(f"input mean is: {component.firstmodel.input_mean}")
         # print(f"input std is: {component.firstmodel.input_std}")
         first_input = (first_input - component.firstmodel.input_mean) / component.firstmodel.input_std
         last_input = (last_input - component.lastmodel.input_mean) / component.lastmodel.input_std
 
-        first_input = numpy.expand_dims(first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-        last_input = numpy.expand_dims(last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-        if component == self.master1:
-            self.queue_MTML_first3 = numpy.concatenate((self.queue_MTML_first3, first_input), axis=1)
-            self.queue_MTML_last3 = numpy.concatenate((self.queue_MTML_last3, last_input), axis = 1)
-            self.queue_MTML_first3 = self.queue_MTML_first3[:, 1:, :]
-            self.queue_MTML_last3 = self.queue_MTML_last3[:, 1:, :]
+        component.buffer_first[0, component.buffer_pointer, :] = first_input
+        component.buffer_last[0, component.buffer_pointer, :] = last_input
+        component.buffer_pointer = (component.buffer_pointer + 1) % component.buffer_first.shape[1]
+        ort_first_input = numpy.roll(component.buffer_first,  component.buffer_pointer, axis=1)
+        ort_last_input  = numpy.roll(component.buffer_last,   component.buffer_pointer, axis=1)
 
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTML_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTML_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-        elif component == self.master2:
-            self.queue_MTMR_first3 = numpy.concatenate((self.queue_MTMR_first3, first_input), axis=1)
-            self.queue_MTMR_last3 = numpy.concatenate((self.queue_MTMR_last3, last_input), axis = 1)
-            self.queue_MTMR_first3 = self.queue_MTMR_first3[:, 1:, :]
-            self.queue_MTMR_last3 = self.queue_MTMR_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-        else:
-            self.queue_PSM_first3 = numpy.concatenate((self.queue_PSM_first3, first_input), axis=1)
-            self.queue_PSM_last3 = numpy.concatenate((self.queue_PSM_last3, last_input), axis = 1)
-            self.queue_PSM_first3 = self.queue_PSM_first3[:, 1:, :]
-            self.queue_PSM_last3 = self.queue_PSM_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_PSM_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_PSM_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
+        # model predict
+        first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: ort_first_input}
+        first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
+        last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: ort_last_input}
+        last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
 
         # denormalize output
         torque_Joint1_3 = first_ort_outs[0]
         torque_Joint4_6 = last_ort_outs[0]
-
         torque_Joint1_3 = torque_Joint1_3 * component.firstmodel.target_std + component.firstmodel.target_mean
         torque_Joint4_6 = torque_Joint4_6 * component.lastmodel.target_std + component.lastmodel.target_mean
 
@@ -472,28 +419,28 @@ class teleoperation:
         # convert to cartesian force
         if component.name.startswith('MTM'):
             external_torque = numpy.concatenate((external_torque, numpy.array([[measured_torque[6]]])), axis=1)
-            internal_torque = numpy.concatenate((internal_torque, numpy.array([[measured_torque[6]]])), axis=1)
+            # internal_torque = numpy.concatenate((internal_torque, numpy.array([[measured_torque[6]]])), axis=1)
         J = component.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
         external_force = numpy.linalg.pinv(J.T) @ external_torque.T
 
-        """ recored inferred force for plot """
-        internal_force = numpy.linalg.pinv(J.T) @ internal_torque.T
-        # print(f"internal force: {internal_force}")
-        # print(f"internal force shape: {internal_force.shape}")
-        if component.name.startswith('PSM'):
-            self.internal_torque_record_PSM.append(internal_torque.reshape(-1).tolist())
-            self.total_torque_record_PSM.append(total_torque)
-            self.internal_force_PSM.append(internal_force.reshape(-1).tolist())
+        # """ recored inferred force for plot """
+        # internal_force = numpy.linalg.pinv(J.T) @ internal_torque.T
+        # # print(f"internal force: {internal_force}")
+        # # print(f"internal force shape: {internal_force.shape}")
+        # if component.name.startswith('PSM'):
+        #     self.internal_torque_record_PSM.append(internal_torque.reshape(-1).tolist())
+        #     self.total_torque_record_PSM.append(total_torque)
+        #     self.internal_force_PSM.append(internal_force.reshape(-1).tolist())
   
-        elif component.name == 'MTML':
-            self.internal_torque_record_MTML.append(internal_torque.reshape(-1).tolist())
-            self.total_torque_record_MTML.append(total_torque)
-            self.internal_force_MTML.append(internal_force.reshape(-1).tolist())
+        # elif component.name == 'MTML':
+        #     self.internal_torque_record_MTML.append(internal_torque.reshape(-1).tolist())
+        #     self.total_torque_record_MTML.append(total_torque)
+        #     self.internal_force_MTML.append(internal_force.reshape(-1).tolist())
 
-        else:
-            self.internal_torque_record_MTMR.append(internal_torque.reshape(-1).tolist())
-            self.total_torque_record_MTMR.append(total_torque)
-            self.internal_force_MTMR.append(internal_force.reshape(-1).tolist())
+        # else:
+        #     self.internal_torque_record_MTMR.append(internal_torque.reshape(-1).tolist())
+        #     self.total_torque_record_MTMR.append(total_torque)
+        #     self.internal_force_MTMR.append(internal_force.reshape(-1).tolist())
    
         return external_force
     ##############################################################################################################################################
@@ -561,7 +508,6 @@ class teleoperation:
 
         # average rotation
         puppet_rotation = self.average_rotation(master1_rotation_alignment, master2_rotation_alignment)
-        # puppet_rotation = puppet_rotation @ numpy.array([[0, -1, 0],[1, 0, 0], [0, 0, 1]])
 
         # set cartesian goal of psm
         puppet_cartesian_goal = self.set_vctFrm3(rotation=puppet_rotation, translation=puppet_position)
@@ -579,8 +525,6 @@ class teleoperation:
         # average velocity
         puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
 
-        # raw_puppet_velocity_goal = (master1_measured_cv + master2_measured_cv) / 2.0
-        # puppet_velocity_goal = self.set_velocity_goal(v=raw_puppet_velocity_goal, threshold=0.02)
 
         # Move
         self.puppet.servo_cs(puppet_cartesian_goal, puppet_velocity_goal, force_goal)
@@ -647,11 +591,6 @@ class teleoperation:
         master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
         master2_velocity_goal = self.velocity_gain * (puppet_measured_cv + master1_measured_cv) / 2.0
 
-        # raw_master1_velocity_goal = (puppet_measured_cv + master2_measured_cv) / 2.0
-        # raw_master2_velocity_goal = (puppet_measured_cv + master1_measured_cv) / 2.0
-
-        # master1_velocity_goal = self.set_velocity_goal(v=raw_master1_velocity_goal, threshold=0.02)
-        # master2_velocity_goal = self.set_velocity_goal(v=raw_master2_velocity_goal, threshold=0.02)
 
         # Move
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
@@ -670,7 +609,6 @@ class teleoperation:
         """
         self.y_data_l.append(puppet_measured_trans.copy())
         self.y_data_l_expected.append(puppet_position.copy())
-        self.a = self.a + 1
 
 
 
@@ -702,9 +640,9 @@ class teleoperation:
         #     print("home not success")
         #     return
         
-        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713])
-        self.puppet.move_jp(puppet_initial_position)
-        time.sleep(3)
+        # puppet_initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
+        # self.puppet.move_jp(puppet_initial_position)
+
         print("Running teleop at {} Hz".format(int(1/self.run_period)))
 
         self.enter_aligning()
@@ -751,7 +689,7 @@ class teleoperation:
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
                 if self.a % 200 == 0:
-                    print(f'running time is {now - last_time}')
+                    print(f'running time is {nowexit - last_time}')
                     print(f'sleeping time is {to_sleep}')
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
@@ -796,10 +734,12 @@ class ARM:
         # load onnx model
         if firstjoints_onnxpath is not None and firstjoints_parampath is not None:
             self.firstmodel = self.LoadModel(firstjoints_onnxpath, firstjoints_parampath)
+            self.buffer_first = numpy.zeros((1, self.firstmodel.seq_len, 6), dtype=numpy.float32)
 
         if lastjoints_onnxpath is not None and lastjoints_parampath is not None:
             self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
-
+            self.buffer_last = numpy.zeros((1, self.firstmodel.seq_len, 6), dtype=numpy.float32)
+            self.buffer_pointer = 0
     
     def measured_js(self):
         measured_js = self.arm.measured_js()
@@ -884,11 +824,6 @@ class ARM:
         j = self.arm.body.jacobian()
         return j.copy()
     
-    def move_jp(self, goal):
-        arg = self.arm.move_jp.GetArgumentPrototype()
-        arg.SetGoal(goal)
-        self.arm.move_jp(arg)
-    
 
 if __name__ == '__main__':
     # parse arguments
@@ -900,7 +835,7 @@ if __name__ == '__main__':
                          help = 'dominance factor beta, between 0 and 1')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")
-    parser.add_argument('-i', '--interval', type=float, default=0.00066,
+    parser.add_argument('-i', '--interval', type=float, default=0.001,
                         help = 'time interval/period to run at - should be as long as system\'s period to prevent timeouts')
     args = parser.parse_args()
 
@@ -922,9 +857,9 @@ if __name__ == '__main__':
 
     clutch = clutch
     coag = coag
+    seq_len = mtm1.firstmodel.seq_len
 
     application = teleoperation(mtm1, mtm2, psm, clutch, args.interval,
                                 not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha, beta = args.beta)
      
     application.run()
-

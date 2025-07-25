@@ -109,10 +109,10 @@ class teleoperation:
         #####################################################################################
 
         # control law gain
-        self.force_gain = 0.3
+        self.force_gain = 0.35
         self.velocity_gain = 1.1
 
-    def set_velocity_goal(self, v, base=1.12, max_gain=1.3, threshold=0.01):
+    def set_velocity_goal(self, v, base=1.12, max_gain=1.2, threshold=0.02):
         norm = numpy.linalg.norm(v)
         if norm < threshold:
             gain = max_gain
@@ -525,7 +525,7 @@ class teleoperation:
         puppet_external_f[3:6] *= 0
 
         # force input
-        gamma = 0.714
+        gamma = 1
         force_goal = self.force_gain * (self.beta * master1_external_f + (1 - self.beta) * master2_external_f + gamma * puppet_external_f)
         force_goal = force_goal.reshape(-1)
 
@@ -700,7 +700,7 @@ class teleoperation:
         #     print("home not success")
         #     return
         
-        puppet_initial_position = numpy.array([0.0, 0.0, 0.13, 0.0, 0.0, 0.0])
+        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713])
         self.puppet.move_jp(puppet_initial_position)
         time.sleep(3)
 
@@ -749,6 +749,7 @@ class teleoperation:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
+                print(f"Time cost relative to {self.run_period} is {to_sleep}")
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
                 

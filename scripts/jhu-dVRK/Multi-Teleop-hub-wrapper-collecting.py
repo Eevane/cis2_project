@@ -14,7 +14,7 @@
 # --- end cisst license ---
 
 """ Multilateral teleoperation single system - Wrapper version """
-""" Strong connected structure, model-involved """
+""" Hub structure """
 
 import argparse
 import time
@@ -25,8 +25,8 @@ import sys
 import time
 from scipy.spatial.transform import Rotation as R
 import cisstVectorPython as cisstVector
-import onnxruntime
-
+import os 
+import csv
 
 class teleoperation:
     class State(Enum):
@@ -84,55 +84,20 @@ class teleoperation:
         self.time_data = []
         self.y_data_l = []
         self.y_data_l_expected = []
-
-        # network parameters setting ######################################################
-        self.queue_MTML_first3 = numpy.zeros((1, 10, 6))
-        self.queue_MTML_last3 = numpy.zeros((1, 10, 6))
-        self.queue_MTMR_first3 = numpy.zeros((1, 10, 6))
-        self.queue_MTMR_last3 = numpy.zeros((1, 10, 6))
-        self.queue_PSM_first3 = numpy.zeros((1, 10, 6))
-        self.queue_PSM_last3 = numpy.zeros((1, 10, 6))
-
-        self.internal_torque_record_MTML= []
-        self.total_torque_record_MTML = []
-        self.internal_torque_record_MTMR = []
-        self.total_torque_record_MTMR = []
-        self.internal_torque_record_PSM = []
-        self.total_torque_record_PSM = []
-
-        self.total_force_MTML = []
-        self.internal_force_MTML = []
-        self.total_force_MTMR = []
-        self.internal_force_MTMR = []
-        self.total_force_PSM = []
-        self.internal_force_PSM = []
-        #####################################################################################
-
-        # control law gain
-        self.force_gain = 0.3
-        self.velocity_gain = 1.0
-
-    def set_velocity_goal(self, v, base=1.0, max_gain=1.3, threshold=0.01):
-        norm = numpy.linalg.norm(v)
-        if norm < threshold:
-            gain = max_gain
-        else:
-            gain = base + (max_gain - base) * (threshold / norm)
-            gain = min(gain, max_gain)
-        return v * gain
+        self.m1_force = []
+        self.m2_force = []
+        self.puppet_force = []
 
 
-    def velocity_gain_per_axis(v, base_gains=(1.0, 1.0, 1.0), max_gains=(1.3, 1.3, 1.3), thresholds=(0.01, 0.01, 0.01)):
-        scaled_v = numpy.zeros_like(v)
-        for i in range(3):
-            val = abs(v[i])
-            if val < thresholds[i]:
-                gain = max_gains[i]
-            else:
-                gain = base_gains[i] + (max_gains[i] - base_gains[i]) * (thresholds[i] / val)
-                gain = min(gain, max_gains[i])
-            scaled_v[i] = v[i] * gain
-        return scaled_v
+        """for recording"""
+        self.start_time = time.monotonic()
+        self.recording_enabled = False
+        self.record_size = 0
+
+        self.output_csv_path = f"/home/pshao7/dvrk_python_devel/{self.start_time:.6f}-MTMR-Mul-Test-joint_data.csv"
+        self.csv_file = open(self.output_csv_path, "a", newline='')
+        self.csv_writer = csv.writer(self.csv_file)
+        self.header_written = os.path.getsize(self.output_csv_path) > 0
 
     def set_vctFrm3(self, rotation=None, translation=None):
         vctFrm3 = cisstVector.vctFrm3()
@@ -201,15 +166,6 @@ class teleoperation:
         _, puppet_rotation = self.puppet.setpoint_cp()
         alignment_offset = numpy.linalg.inv(master2_rotation) @ puppet_rotation
         return alignment_offset
-    
-    ############################################################################
-    # compute relative orientation of mtm1 and mtm2
-    def alignment_offset_master1_to_master2(self):
-        _, master1_rotation = self.master1.measured_cp()
-        _, master2_rotation = self.master2.measured_cp()
-        alignment_offset = numpy.linalg.inv(master1_rotation) @ master2_rotation
-        return alignment_offset
-    ############################################################################
 
     # set relative origins for clutching and alignment offset
     def update_initial_state(self):
@@ -227,14 +183,12 @@ class teleoperation:
 
         self.alignment_offset_initial_master1 = self.alignment_offset_master1()
         self.alignment_offset_initial_master2 = self.alignment_offset_master2()
-        self.alignment_offset_initial_masters = self.alignment_offset_master1_to_master2()    # Used for strong-connected archit.
-
         self.master1_offset_angle, self.master1_offset_axis = self.GetRotAngle(self.alignment_offset_initial_master1)
         self.master2_offset_angle, self.master2_offset_axis = self.GetRotAngle(self.alignment_offset_initial_master2)
-        self.masters_offset_angle, self.masters_offset_axis = self.GetRotAngle(self.alignment_offset_initial_masters)    # Used for strong-connected archit.
 
     def gripper_to_jaw(self, gripper_angle):
         jaw_angle = self.gripper_to_jaw_scale * gripper_angle + self.gripper_to_jaw_offset
+
         # make sure we don't set goal past joint limits
         return max(jaw_angle, self.jaw_min)
 
@@ -257,8 +211,8 @@ class teleoperation:
         self.last_align = None
         self.last_operator_prompt = time.perf_counter()
 
-        # self.master1.arm.use_gravity_compensation(True)
-        # self.master2.arm.use_gravity_compensation(True)
+        self.master1.arm.use_gravity_compensation(True)
+        self.master2.arm.use_gravity_compensation(True)
         self.puppet.arm.hold()
 
         # reset operator activity data in case operator is inactive
@@ -393,8 +347,8 @@ class teleoperation:
             self.running = False
         self.gripper_ghost = self.jaw_to_gripper(jaw_setpoint)
 
-        # self.master1.arm.use_gravity_compensation(True)
-        # self.master2.arm.use_gravity_compensation(True)
+        self.master1.arm.use_gravity_compensation(True)
+        self.master2.arm.use_gravity_compensation(True)
 
     def transition_following(self):
         if not self.on_operator_present():
@@ -402,132 +356,30 @@ class teleoperation:
         elif self.on_clutch():
             self.enter_clutched()
 
-    # model inference ##################################################################################################################
-    def externalforce_prediction(self, component):
-        # measured_js returns 6 joints for PSM, 7 joints for MTM
-        measured_q, measured_dq, measured_torque = component.measured_js()
-        q = measured_q[:6]
-        dq = measured_dq[:6]
-        total_torque = measured_torque[:6]
-        # print(f"{component.name} measured_jf is: {total_torque}")
-
-        # normalize input
-        first_input = numpy.concatenate((q[0:3], dq[0:3]))
-        last_input = numpy.concatenate((q[3:6], dq[3:6]))
-
-        # print(f"input mean is: {component.firstmodel.input_mean}")
-        # print(f"input std is: {component.firstmodel.input_std}")
-        first_input = (first_input - component.firstmodel.input_mean) / component.firstmodel.input_std
-        last_input = (last_input - component.lastmodel.input_mean) / component.lastmodel.input_std
-
-        first_input = numpy.expand_dims(first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-        last_input = numpy.expand_dims(last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-        if component == self.master1:
-            self.queue_MTML_first3 = numpy.concatenate((self.queue_MTML_first3, first_input), axis=1)
-            self.queue_MTML_last3 = numpy.concatenate((self.queue_MTML_last3, last_input), axis = 1)
-            self.queue_MTML_first3 = self.queue_MTML_first3[:, 1:, :]
-            self.queue_MTML_last3 = self.queue_MTML_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTML_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTML_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-        elif component == self.master2:
-            self.queue_MTMR_first3 = numpy.concatenate((self.queue_MTMR_first3, first_input), axis=1)
-            self.queue_MTMR_last3 = numpy.concatenate((self.queue_MTMR_last3, last_input), axis = 1)
-            self.queue_MTMR_first3 = self.queue_MTMR_first3[:, 1:, :]
-            self.queue_MTMR_last3 = self.queue_MTMR_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-        else:
-            self.queue_PSM_first3 = numpy.concatenate((self.queue_PSM_first3, first_input), axis=1)
-            self.queue_PSM_last3 = numpy.concatenate((self.queue_PSM_last3, last_input), axis = 1)
-            self.queue_PSM_first3 = self.queue_PSM_first3[:, 1:, :]
-            self.queue_PSM_last3 = self.queue_PSM_last3[:, 1:, :]
-
-            # model predict
-            first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: self.queue_PSM_first3.astype(numpy.float32)}
-            first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: self.queue_PSM_last3.astype(numpy.float32)}
-            last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
-
-
-        # denormalize output
-        torque_Joint1_3 = first_ort_outs[0]
-        torque_Joint4_6 = last_ort_outs[0]
-
-        torque_Joint1_3 = torque_Joint1_3 * component.firstmodel.target_std + component.firstmodel.target_mean
-        torque_Joint4_6 = torque_Joint4_6 * component.lastmodel.target_std + component.lastmodel.target_mean
-
-        internal_torque = numpy.hstack((torque_Joint1_3, torque_Joint4_6))
-        external_torque = (total_torque - internal_torque)
-
-        # convert to cartesian force
-        if component.name.startswith('MTM'):
-            external_torque = numpy.concatenate((external_torque, numpy.array([[measured_torque[6]]])), axis=1)
-            internal_torque = numpy.concatenate((internal_torque, numpy.array([[measured_torque[6]]])), axis=1)
-        J = component.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
-        external_force = numpy.linalg.pinv(J.T) @ external_torque.T
-
-        """ recored inferred force for plot """
-        internal_force = numpy.linalg.pinv(J.T) @ internal_torque.T
-        # print(f"internal force: {internal_force}")
-        # print(f"internal force shape: {internal_force.shape}")
-        if component.name.startswith('PSM'):
-            self.internal_torque_record_PSM.append(internal_torque.reshape(-1).tolist())
-            self.total_torque_record_PSM.append(total_torque)
-            self.internal_force_PSM.append(internal_force.reshape(-1).tolist())
-  
-        elif component.name == 'MTML':
-            self.internal_torque_record_MTML.append(internal_torque.reshape(-1).tolist())
-            self.total_torque_record_MTML.append(total_torque)
-            self.internal_force_MTML.append(internal_force.reshape(-1).tolist())
-
-        else:
-            self.internal_torque_record_MTMR.append(internal_torque.reshape(-1).tolist())
-            self.total_torque_record_MTMR.append(total_torque)
-            self.internal_force_MTMR.append(internal_force.reshape(-1).tolist())
-   
-        return external_force
-    ##############################################################################################################################################
-
     def run_following(self):               
         """
         Forward Process
         """
         # Force channel
-        """ recorde cartesian force for plot """
-        master1_measured_cf = self.master1.body_measured_cf()   # (6,) numpy array
-        master2_measured_cf = self.master2.body_measured_cf()   # (6,) numpy array
-        puppet_measured_cf = self.puppet.body_measured_cf()
-        """  """
-
         # master1
-        master1_external_f = self.externalforce_prediction(self.master1)   # (6,) numpy array
-        master1_external_f[0:3] *= -1.0
-        master1_external_f[3:6] *= 0   # turn off torque
+        master1_measured_cf = self.master1.body_measured_cf()   # (6,) numpy array
+        master1_measured_cf[0:3] *= -1.0
+        master1_measured_cf[3:6] *= 0   # turn off torque
 
         # master2
-        master2_external_f = self.externalforce_prediction(self.master2)   # (6,) numpy array
-        master2_external_f[0:3] *= -1.0
-        master2_external_f[3:6] *= 0  # turn off torque
+        master2_measured_cf = self.master2.body_measured_cf()   # (6,) numpy array
+        master2_measured_cf[0:3] *= -1.0
+        master2_measured_cf[3:6] *= 0   # turn off torque
 
         # puppet
-        puppet_external_f = self.externalforce_prediction(self.puppet)   # (6,) numpy array
-        puppet_external_f[0:3] *= -1.0
-        puppet_external_f[3:6] *= 0
+        puppet_measured_cf = self.puppet.body_measured_cf()
+        puppet_measured_cf[0:3] *= -1.0
+        puppet_measured_cf[3:6] *= 0
 
         # force input
         gamma = 0.714
-        force_goal = self.force_gain * (self.beta * master1_external_f + (1 - self.beta) * master2_external_f + gamma * puppet_external_f)
-        force_goal = force_goal.reshape(-1)
+        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
+
 
         # Position channel
         master1_measured_trans, master1_measured_rot = self.master1.measured_cp()
@@ -561,7 +413,6 @@ class teleoperation:
 
         # average rotation
         puppet_rotation = self.average_rotation(master1_rotation_alignment, master2_rotation_alignment)
-        # puppet_rotation = puppet_rotation @ numpy.array([[0, -1, 0],[1, 0, 0], [0, 0, 1]])
 
         # set cartesian goal of psm
         puppet_cartesian_goal = self.set_vctFrm3(rotation=puppet_rotation, translation=puppet_position)
@@ -577,10 +428,8 @@ class teleoperation:
         master2_measured_cv[3:6] *= 0.2     
 
         # average velocity
-        puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
+        puppet_velocity_goal = (master1_measured_cv + master2_measured_cv) / 2.0
 
-        # raw_puppet_velocity_goal = (master1_measured_cv + master2_measured_cv) / 2.0
-        # puppet_velocity_goal = self.set_velocity_goal(v=raw_puppet_velocity_goal, threshold=0.02)
 
         # Move
         self.puppet.servo_cs(puppet_cartesian_goal, puppet_velocity_goal, force_goal)
@@ -609,26 +458,16 @@ class teleoperation:
         puppet_measured_trans, puppet_measured_rot = self.puppet.measured_cp()
         puppet_translation = puppet_measured_trans - puppet_initial_trans     ##### should it update puppet initial cartesian after forward process???
         puppet_translation /= self.scale
-        master1_translation /= self.scale
-        master2_translation /= self.scale
 
         # set translation of mtm1
-        master1_translation_goal = (master2_translation + puppet_translation) / 2.0
-        master1_position = master1_translation_goal + master1_initial_trans
+        master1_position = puppet_translation + master1_initial_trans
         # set translation of mtm2
-        master2_translation_goal = (master1_translation + puppet_translation) / 2.0
-        master2_position = master2_translation_goal + master2_initial_trans
+        master2_position = puppet_translation + master2_initial_trans
 
         # set rotation of mtm1
-        master2_rotation_alignment_ToMaster1 = master2_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
-        puppet_rotation_alignment_ToMaster1 = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
+        master1_rotation = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
         # set rotation of mtm2
-        master1_rotation_alignment_ToMaster2 = master1_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
-        puppet_rotation_alignment_ToMaster2 = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
-
-        # average rotation
-        master1_rotation = self.average_rotation(master2_rotation_alignment_ToMaster1, puppet_rotation_alignment_ToMaster1)
-        master2_rotation = self.average_rotation(master1_rotation_alignment_ToMaster2, puppet_rotation_alignment_ToMaster2)
+        master2_rotation = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
 
         # set cartesian goal of mtm1 and mtm2
         master1_cartesian_goal = self.set_vctFrm3(rotation=master1_rotation, translation=master1_position)
@@ -639,40 +478,76 @@ class teleoperation:
         puppet_measured_cv = self.puppet.measured_cv()   # (6,) numpy array
         puppet_measured_cv[0:3] /= self.velocity_scale      # scale the linear velocity
         puppet_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
+        master1_velocity_goal = puppet_measured_cv
+        master2_velocity_goal = puppet_measured_cv
 
-        master1_measured_cv[0:3] /= self.velocity_scale
-        master2_measured_cv[0:3] /= self.velocity_scale
-
-        # set velocity goal
-        master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
-        master2_velocity_goal = self.velocity_gain * (puppet_measured_cv + master1_measured_cv) / 2.0
-
-        # raw_master1_velocity_goal = (puppet_measured_cv + master2_measured_cv) / 2.0
-        # raw_master2_velocity_goal = (puppet_measured_cv + master1_measured_cv) / 2.0
-
-        # master1_velocity_goal = self.set_velocity_goal(v=raw_master1_velocity_goal, threshold=0.02)
-        # master2_velocity_goal = self.set_velocity_goal(v=raw_master2_velocity_goal, threshold=0.02)
 
         # Move
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
-
         """
-        record measured cartesian force
-        """
-        self.total_force_MTML.append(master1_measured_cf.copy())
-        self.total_force_MTMR.append(master2_measured_cf.copy())
-        self.total_force_PSM.append(puppet_measured_cf.copy())
-
-        """
-        record position tracking
+        plot
         """
         self.y_data_l.append(puppet_measured_trans.copy())
         self.y_data_l_expected.append(puppet_position.copy())
-        self.a = self.a + 1
+        # print(f"master1 measured_cf: {master1_measured_cf}")
+        self.m1_force.append(master1_measured_cf.copy())
+        self.m2_force.append(master2_measured_cf.copy())
+        self.puppet_force.append(puppet_measured_cf.copy())
+        self.a += 1
 
 
+        '''For recording'''
+        current_time = time.monotonic()
+        print(f"recording enabled: {self.recording_enabled}")
+        if not self.recording_enabled and float(current_time - self.start_time) >= 10.0:
+            print("Start recording joint data")
+            self.recording_enabled = True
+
+        if self.recording_enabled and self.record_size >= 1500:
+            print("Auto stopping: 20 minutes reached.")
+            # time.strftime("%Y-%m-%d %H:%M:%S", current_time)
+            # time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
+            print(f"start_time: {self.start_time}")
+            print(f"end_time: {current_time}")
+            self.recording_enabled = False
+            self.running = False
+
+        if self.recording_enabled:
+            self.record_size += 1
+            print("Recording data.")
+
+            timestamp = time.time()
+            master1_js = self.master1.measured_js()
+            master2_js = self.master2.measured_js()
+            puppet_js  = self.puppet.measured_js()
+
+
+            master1_q = list(master1_js.Position()[:6])
+            master1_dq = list(master1_js.Velocity()[:6])
+            master1_torque = list(master1_js.Effort()[:6])
+
+            master2_q = list(master2_js.Position()[:6])
+            master2_dq = list(master2_js.Velocity()[:6])
+            master2_torque = list(master2_js.Effort()[:6])
+
+            puppet_q = list(puppet_js.Position())
+            puppet_dq = list(puppet_js.Velocity())
+            puppet_torque = list(puppet_js.Effort())
+
+            row = [timestamp] + master1_q + master1_dq + master1_torque + master2_q + master2_dq + master2_torque + puppet_q + puppet_dq + puppet_torque
+
+            if not self.header_written:
+                headers = ['timestamp'] + \
+                        [f'master1_q{i}' for i in range(6)] + [f'master1_dq{i}' for i in range(6)] + [f'master1_tau{i}' for i in range(6)] + \
+                        [f'master2_q{i}' for i in range(6)] + [f'master2_dq{i}' for i in range(6)] + [f'master2_tau{i}' for i in range(6)] + \
+                        [f'puppet_q{i}' for i in range(6)]  + [f'puppet_dq{i}' for i in range(6)]  + [f'puppet_tau{i}' for i in range(6)]
+                self.csv_writer.writerow(headers)
+                self.header_written = True
+
+            self.csv_writer.writerow(row)
+        
 
     def home(self):
         print("Homing arms...")
@@ -702,9 +577,9 @@ class teleoperation:
         #     print("home not success")
         #     return
         
-        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713])
-        self.puppet.move_jp(puppet_initial_position)
-        time.sleep(3)
+        # puppet_initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
+        # self.puppet.move_jp(puppet_initial_position)
+
         print("Running teleop at {} Hz".format(int(1/self.run_period)))
 
         self.enter_aligning()
@@ -750,9 +625,6 @@ class teleoperation:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
-                if self.a % 200 == 0:
-                    print(f'running time is {now - last_time}')
-                    print(f'sleeping time is {to_sleep}')
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
                 
@@ -761,66 +633,35 @@ class teleoperation:
             system.power_off()
 
         # save data
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', comments='')
-        
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/PSM_internal.txt', self.internal_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/PSM_total.txt', self.total_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/PSM_force.txt', self.internal_force_PSM, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTML_internal.txt', self.internal_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTML_total.txt', self.total_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTML_force.txt', self.internal_force_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTMR_internal.txt', self.internal_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTMR_total.txt', self.total_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTMR_force.txt', self.internal_force_MTMR, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/PSM_total_force.txt', self.total_force_PSM, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTML_total_force.txt', self.total_force_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTMR_total_force.txt', self.total_force_MTMR, fmt='%f', delimiter=' ', comments='')
-        print(f"data.txt saved!")
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Jul_10/multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+        print(f"txt saved!")
 
 class ARM:
-    class LoadModel:
-        def __init__(self, onnx_path, param_path):
-            self.ort_session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
-            norm_data = numpy.load(param_path)
-            self.input_mean = norm_data['input_mean']
-            self.input_std = norm_data['input_std']
-            self.target_mean = norm_data['target_mean']
-            self.target_std = norm_data['target_std']
-            self.seq_len = norm_data['seq_len']
-
-    def __init__(self, arm, name, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None):
+    def __init__(self, arm, name):
         self.arm = arm
         self.name = name
-
-        # load onnx model
-        if firstjoints_onnxpath is not None and firstjoints_parampath is not None:
-            self.firstmodel = self.LoadModel(firstjoints_onnxpath, firstjoints_parampath)
-
-        if lastjoints_onnxpath is not None and lastjoints_parampath is not None:
-            self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
-
     
-    def measured_js(self):
-        measured_js = self.arm.measured_js()
-        measured_jf = measured_js.Effort()
-        measured_jv = measured_js.Velocity()
-        measured_jp = measured_js.Position()
-        return measured_jp.copy(), measured_jv.copy(), measured_jf.copy()
+    # def measured_js(self):
+    #     measured_js = self.arm.measured_js()
+    #     measured_jf = measured_js.Effort()
 
     def measured_cp(self):
         measure_cp = self.arm.measured_cp()
         cartesian_position = measure_cp.Position()
         cartesian_orientation = cartesian_position.GetRotation()
         cartesian_translation = cartesian_position.GetTranslation()
-        return cartesian_translation.copy(), cartesian_orientation.copy()
+        return cartesian_translation, cartesian_orientation
 
     def setpoint_cp(self):
         setpoint_cp = self.arm.setpoint_cp()
         cartesian_position = setpoint_cp.Position()
         cartesian_orientation = cartesian_position.GetRotation()
         cartesian_translation = cartesian_position.GetTranslation()
-        return cartesian_translation.copy(), cartesian_orientation.copy()
+        return cartesian_translation, cartesian_orientation
     
     def measured_cv(self):
         measured_cv = self.arm.measured_cv()
@@ -832,19 +673,19 @@ class ARM:
     def body_measured_cf(self):
         body_measured_cf = self.arm.body.measured_cf()
         body_force = body_measured_cf.Force()
-        return body_force.copy()
+        return body_force
 
     def gripper_measured_js(self):
         assert self.name in ("MTML", "MTMR")
         gripper = self.arm.gripper.measured_js()
         gripper_position = gripper.Position()
-        return gripper_position.copy()
+        return gripper_position
     
     def jaw_setpoint_js(self):
         assert self.name in ("PSM1", "PSM2")
         jaw = self.arm.jaw.setpoint_js()
         jaw_setpoint = jaw.Position()
-        return jaw_setpoint.copy()
+        return jaw_setpoint
        
     def jaw_servo_jp(self, goal):
         assert self.name in ("PSM1", "PSM2")
@@ -879,16 +720,28 @@ class ARM:
     def lock_orientation(self):
         _, lock_rot = self.measured_cp()
         self.arm.lock_orientation(lock_rot)
+        
 
-    def body_jacobian(self):
-        j = self.arm.body.jacobian()
-        return j.copy()
+
+# class Operator:
+#     def __init__(self):
+#         self._present = False
+#         self.operator_is_active = False
+
+#     @property
+#     def operator_present(self):
+#         return self._present
     
-    def move_jp(self, goal):
-        arg = self.arm.move_jp.GetArgumentPrototype()
-        arg.SetGoal(goal)
-        self.arm.move_jp(arg)
-    
+#     @operator_present.setter
+#     def operator_present(self, value):
+#         self._present = value
+#         self.on_operator_present(value)
+
+#     def on_operator_present(self, present):
+#         print(f"[Callback] present = {present}")
+#         if not present:
+#             self.operator_is_active = False
+#             print("    -> Operator inactive")
 
 if __name__ == '__main__':
     # parse arguments
@@ -900,25 +753,14 @@ if __name__ == '__main__':
                          help = 'dominance factor beta, between 0 and 1')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")
-    parser.add_argument('-i', '--interval', type=float, default=0.00066,
+    parser.add_argument('-i', '--interval', type=float, default=0.001,
                         help = 'time interval/period to run at - should be as long as system\'s period to prevent timeouts')
     args = parser.parse_args()
 
     from dvrk_system import *
-    path_root = "/home/xle6/dvrk_teleop_data/July_11/model/"
-
-    mtm1 = ARM(MTML, 'MTML', 
-               firstjoints_onnxpath=path_root+"best-master1-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master1-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master1-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master1-strong-Last-stat_params.npz")
-    mtm2 = ARM(MTMR, 'MTMR',
-               firstjoints_onnxpath=path_root+"best-master2-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master2-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master2-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master2-strong-Last-stat_params.npz")
-    psm = ARM(PSM1, 'PSM1',
-              firstjoints_onnxpath=path_root+"best-puppet-strong-First.onnx", 
-               firstjoints_parampath=path_root+"puppet-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-puppet-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"puppet-strong-Last-stat_params.npz")
+    mtm1 = ARM(MTML, 'MTML')
+    mtm2 = ARM(MTMR, 'MTMR')
+    psm = ARM(PSM1, 'PSM1')
 
     clutch = clutch
     coag = coag
@@ -927,4 +769,3 @@ if __name__ == '__main__':
                                 not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha, beta = args.beta)
      
     application.run()
-

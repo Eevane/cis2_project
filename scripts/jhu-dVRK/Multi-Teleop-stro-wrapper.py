@@ -87,7 +87,28 @@ class teleoperation:
         self.m2_force = []
         self.puppet_force = []
 
+        # control law gain
+        self.force_gain = 0.3
+        self.velocity_gain = 1.0
 
+
+
+        """for recording"""
+
+
+        self.start_time = time.monotonic()
+        self.recording_enabled = False
+        self.record_size = 0
+        self.output_csv_path = f"/home/xle6/dvrk_teleop_data/0723_data/{self.start_time:.6f}-MTMR-Mul-Train-joint_data.csv"
+
+
+        self.csv_file = open(self.output_csv_path, "a", newline='')
+
+
+        self.csv_writer = csv.writer(self.csv_file)
+
+
+        self.header_written = os.path.getsize(self.output_csv_path) > 0
     def set_vctFrm3(self, rotation=None, translation=None):
         vctFrm3 = cisstVector.vctFrm3()
         if rotation is not None:
@@ -378,7 +399,7 @@ class teleoperation:
 
         # force input
         gamma = 0.714
-        force_goal = 0.2 * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
+        force_goal = self.force_gain * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
 
 
         # Position channel
@@ -428,7 +449,7 @@ class teleoperation:
         master2_measured_cv[3:6] *= 0.2     
 
         # average velocity
-        puppet_velocity_goal = (master1_measured_cv + master2_measured_cv) / 2.0
+        puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
 
 
         # Move
@@ -493,8 +514,8 @@ class teleoperation:
         master2_measured_cv[0:3] /= self.velocity_scale
 
         # set velocity goal
-        master1_velocity_goal = (puppet_measured_cv + master2_measured_cv) / 2.0
-        master2_velocity_goal = (puppet_measured_cv + master1_measured_cv) / 2.0
+        master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
+        master2_velocity_goal = self.velocity_gain * (puppet_measured_cv + master1_measured_cv) / 2.0
 
 
         # Move
@@ -540,9 +561,9 @@ class teleoperation:
         #     print("home not success")
         #     return
         
-        # puppet_initial_position = numpy.array([0, 0, 0.13, 0, 0, 0])
-        # self.puppet.move_jp(puppet_initial_position)
-
+        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713])
+        self.puppet.move_jp(puppet_initial_position)
+        time.sleep(3)
         print("Running teleop at {} Hz".format(int(1/self.run_period)))
 
         self.enter_aligning()
@@ -588,6 +609,7 @@ class teleoperation:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
+                # print(f'sleeping time is {to_sleep}')
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
                 
@@ -683,6 +705,11 @@ class ARM:
     def lock_orientation(self):
         _, lock_rot = self.measured_cp()
         self.arm.lock_orientation(lock_rot)
+    
+    def move_jp(self, goal):
+        arg = self.arm.move_jp.GetArgumentPrototype()
+        arg.SetGoal(goal)
+        self.arm.move_jp(arg)
         
 
 if __name__ == '__main__':

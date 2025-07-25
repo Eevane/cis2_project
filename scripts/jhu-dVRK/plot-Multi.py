@@ -4,7 +4,7 @@ import numpy as np
 
 true_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/multi_array.txt', skiprows=1)
 expect_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/multi_array_exp.txt', skiprows=1)
-gamma = -0.714
+gamma = -1
 beta = 0.5
 
 m1_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/MTML_total_force.txt', skiprows=1, usecols=(0, 1, 2))
@@ -13,6 +13,7 @@ puppet_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/PSM_total_force.
 total_force = beta * m1_force + (1-beta) * m2_force
 puppet_force = gamma * puppet_force
 
+# puppet_force[:,1] = -1 * puppet_force[:,1]
 # # capture when contacting
 # true_pos = true_pos[750:]
 # expect_pos = expect_pos[750:]
@@ -24,7 +25,7 @@ m2_force_norm = np.linalg.norm(m2_force, axis=1)
 puppet_force_norm = np.linalg.norm(puppet_force, axis=1)
 total_force_norm = beta * m1_force_norm + (1-beta) * m2_force_norm
 num = len(m1_force)
-x = np.arange(num) * 0.002
+x = np.arange(num) * 0.00066
 
 # RMSE for pos
 std_pos = np.std(true_pos, axis=0)

@@ -75,7 +75,30 @@ def SetupArms(components):
                             arm_dict[command] = getattr(interface, command)
                     dvrk[comp] = arm_dict
                     break
+        
+        # if (comp == 'io'):
+        if comp.startswith('IO'):
+            print('Found ' + comp)
+            obj = LCM.GetComponent(comp)
+            provInterfaces = obj.GetNamesOfInterfacesProvided()
 
+            for prov in provInterfaces:
+                if (prov == 'coag') or (prov == 'clutch'):
+                    comp_no_dash = comp.replace('-', '_')
+                    interface = cisstMultiTask.mtsCreateClientInterface(prov+'Client', comp, prov)
+                    setattr(sys.modules[__name__], prov, interface)
+                    print(prov, "is added.")
+                    print('Type dir(' + prov + ') to see available commands.')
+                    arm_dict = dict()
+                    for command in dir(interface):
+                        # Ignore commands that start with '_' or 'this'
+                        if not command.startswith('_') and not command.startswith('this'):
+                            arm_dict[command] = getattr(interface, command)
+                    dvrk[prov] = arm_dict
+        else:
+            print("No prov is calledd Coag or Clutch.")
+
+            
 LCM = cisstMultiTask.mtsManagerLocal.GetInstance()
 
 isEmbedded = False

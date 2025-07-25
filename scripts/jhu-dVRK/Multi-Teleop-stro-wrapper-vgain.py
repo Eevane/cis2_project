@@ -88,10 +88,11 @@ class teleoperation:
         self.puppet_force = []
 
         # control law gain
-        self.force_gain = 0.3
+        self.force_gain = 0.35
         self.velocity_gain = 1.1
+        self.position_gain = 1.0
 
-    def set_velocity_goal(self, v, base=1.12, max_gain=1.3, threshold=0.02):
+    def set_velocity_goal(self, v, base=1.12, max_gain=1.2, threshold=0.02):
         norm = numpy.linalg.norm(v)
         if norm < threshold:
             gain = max_gain
@@ -419,7 +420,7 @@ class teleoperation:
         master2_translation = master2_measured_trans - master2_initial_trans
         master1_translation *= self.scale
         master2_translation *= self.scale
-        master_total_translation = (master1_translation + master2_translation) / 2.0
+        master_total_translation = self.position_gain * (master1_translation + master2_translation) / 2.0
         puppet_position = master_total_translation + puppet_initial_trans
 
         # set rotation of psm to match mtm plus alignment offset
@@ -488,10 +489,10 @@ class teleoperation:
         master2_translation /= self.scale
 
         # set translation of mtm1
-        master1_translation_goal = (master2_translation + puppet_translation) / 2.0
+        master1_translation_goal = self.position_gain * (master2_translation + puppet_translation) / 2.0
         master1_position = master1_translation_goal + master1_initial_trans
         # set translation of mtm2
-        master2_translation_goal = (master1_translation + puppet_translation) / 2.0
+        master2_translation_goal = self.position_gain * (master1_translation + puppet_translation) / 2.0
         master2_position = master2_translation_goal + master2_initial_trans
 
         # set rotation of mtm1
@@ -572,7 +573,7 @@ class teleoperation:
         #     print("home not success")
         #     return
         
-        puppet_initial_position = numpy.array([0.0, 0.0, 0.13, 0.0, 0.0, 0.0])
+        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713])
         self.puppet.move_jp(puppet_initial_position)
         time.sleep(3)
         
@@ -621,6 +622,7 @@ class teleoperation:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
+                print(f"Time cost relative to {self.run_period} is {to_sleep}")
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
                 
@@ -738,7 +740,7 @@ if __name__ == '__main__':
                          help = 'dominance factor beta, between 0 and 1')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")
-    parser.add_argument('-i', '--interval', type=float, default=0.001,
+    parser.add_argument('-i', '--interval', type=float, default=0.00066,
                         help = 'time interval/period to run at - should be as long as system\'s period to prevent timeouts')
     args = parser.parse_args()
 
