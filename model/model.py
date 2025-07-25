@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 
 class JointDataset(Dataset):
-    def __init__(self, file_path, seq_len=10, mode='train', split_ratio=0.7, in_mean=None, in_std=None, tar_mean=None, tar_std=None):
+    def __init__(self, file_path, seq_len=10, mode='train', split_ratio=None, in_mean=None, in_std=None, tar_mean=None, tar_std=None):
         self.seq_len = seq_len
         assert mode in ['train', 'test', 'evaluation'], "mode should be 'train', 'test' or 'evaluation'"
 
@@ -21,18 +21,20 @@ class JointDataset(Dataset):
         raw_in = torch.tensor(df.iloc[:, 2:8].values, dtype=torch.float32)
         raw_tar = torch.tensor(df.iloc[:, 8:].values, dtype=torch.float32)
 
-        # divide training/testing dataset
-        split_index = int(len(raw_in) * split_ratio)
-        if mode == 'train':
-            raw_in = raw_in[:split_index]
-            raw_tar = raw_tar[:split_index]
-        elif mode == 'test':
-            raw_in = raw_in[split_index - seq_len + 1:]
-            raw_tar = raw_tar[split_index - seq_len + 1:]
-        else:
-            assert all(p is not None for p in [in_mean, in_std, tar_mean, tar_std]), \
-            "evaluation mode should have mean/std of training dataset."
-        # record the range of current dataset
+        if split_ratio is not None:
+            # divide training/testing dataset
+            split_index = int(len(raw_in) * split_ratio)
+            if mode == 'train':
+                raw_in = raw_in[:split_index]
+                raw_tar = raw_tar[:split_index]
+            elif mode == 'test':
+                raw_in = raw_in[split_index - seq_len + 1:]
+                raw_tar = raw_tar[split_index - seq_len + 1:]
+            else:
+                assert all(p is not None for p in [in_mean, in_std, tar_mean, tar_std]), \
+                "evaluation mode should have mean/std of training dataset."
+            # record the range of current dataset
+        
         self.target_range = raw_tar.max(dim=0).values - raw_tar.min(dim=0).values
 
         # Z-score normalization
@@ -43,7 +45,7 @@ class JointDataset(Dataset):
             self.target_mean = raw_tar.mean(dim=0)
             self.target_std = raw_tar.std(dim=0) + 1e-8
         else:
-            # use mean-std of training dataset to normalize testing dataset
+            # use given mean-std for normalization
             assert torch.is_tensor(in_mean) and torch.is_tensor(in_std)
             assert torch.is_tensor(tar_mean) and torch.is_tensor(tar_std)
             self.input_mean = in_mean
@@ -82,7 +84,7 @@ class JointLSTMModel(nn.Module):
         self.fc2 = nn.Sequential(nn.Linear(256, 128), nn.LayerNorm(128), nn.ReLU(True))
         self.fc3 = nn.Sequential(nn.Linear(128, 64), nn.LayerNorm(64), nn.ReLU(True))
         self.regression = nn.Linear(64, output_size)
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
         #print("x shape:", x.shape) 
@@ -163,21 +165,30 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
 
 if __name__ == "__main__":
     component = 'puppet-Last'
-    training_file_path = f"../../Dataset/train_0711/{component}ThreeJoints.csv"
-    output_path = "../../Dataset/checkpoints/0711"
+    training_file_path = f"../../Dataset/0724/train/{component}ThreeJoints.csv"
+    test_file_path = f"../../Dataset/0724/test/{component}ThreeJoints.csv"
+    output_path = "../../Dataset/0724/checkpoints/"
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
     batch_size = 64
-    lr = 5e-5
-    num_epochs = 25
+    lr = 1e-5
+    num_epochs = 80
     seq_len= 50
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train')
+    seed = 42
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+    split_ratio=0.8
+    training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train', split_ratio=split_ratio)
     in_mean, in_std, tar_mean, tar_std = training_dataset.input_mean, training_dataset.input_std, training_dataset.target_mean, training_dataset.target_std
-    testing_dataset = JointDataset(training_file_path, seq_len=seq_len, mode='test', in_mean=in_mean, in_std=in_std, tar_mean=tar_mean, tar_std=tar_std)
+    testing_dataset = JointDataset(training_file_path, seq_len=seq_len, mode='test', split_ratio=split_ratio, in_mean=in_mean, in_std=in_std, tar_mean=tar_mean, tar_std=tar_std)
+    # training_dataset = JointDataset(training_file_path,seq_len=seq_len,mode='train')
+    # in_mean, in_std, tar_mean, tar_std = training_dataset.input_mean, training_dataset.input_std, training_dataset.target_mean, training_dataset.target_std
+    # testing_dataset = JointDataset(test_file_path, seq_len=seq_len, mode='test', in_mean=in_mean, in_std=in_std, tar_mean=tar_mean, tar_std=tar_std)
 
     training_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     testing_dataloader = DataLoader(testing_dataset, batch_size=batch_size, shuffle=False)

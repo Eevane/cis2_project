@@ -37,16 +37,16 @@ def split_csv_by_column(input_path, output_dir, entities, keywords, save_name, c
 
 
 if __name__ == "__main__":
-    dataset_root = "../../Dataset/"
-    output_path = ["test_0704"]
-    input_path  = ["4495271.857302628-MTMR-Mul-Test-hub-joint_data.csv"]
+    dataset_root = "../../Dataset/0724/"
+    output_path = ["train"]
+    input_path  = ["6140359.458113-MTMR-Mul-Train-joint_data.csv"]
 #                   "3288280.803231152-joint_data.csv"]
     entities = ['master2', 'puppet']
-    save_name = ['master2-hub', 'puppet-hub']
+    save_name = ['master2', 'puppet']
     keywords = ['q', 'dq', 'tau']
     common_columns = ['timestamp']
     
     for index, input in enumerate(input_path):
-        split_csv_by_column(input_path=(dataset_root+'0704/'+input), output_dir=(dataset_root+output_path[index]), entities=entities, keywords=keywords, save_name=save_name, common_columns=common_columns)
+        split_csv_by_column(input_path=(dataset_root+input), output_dir=(dataset_root+output_path[index]), entities=entities, keywords=keywords, save_name=save_name, common_columns=common_columns)
         print(f"Saved {output_path[index]}.")
         print("")
