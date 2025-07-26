@@ -679,6 +679,7 @@ class teleoperation:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
+                print(f"Time cost relative to {self.run_period} is {to_sleep}")
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
                 
@@ -864,7 +865,7 @@ if __name__ == '__main__':
 
     from dvrk_system import *
 
-    path_root = "/home/xle6/dvrk_teleop_data/July_11/model/"
+    path_root = "/home/xle6/dvrk_teleop_data/0723_model/"
     model_on = True
     use_ov = True
 
