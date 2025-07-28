@@ -749,7 +749,7 @@ class teleoperation:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
-                print(f"Time cost relative to {self.run_period} is {to_sleep}")
+                print(f"Running teleperation rate is {1/(now - last_time)}")
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
                 
@@ -903,19 +903,20 @@ if __name__ == '__main__':
 
     from dvrk_system import *
     path_root = "/home/xle6/dvrk_teleop_data/July_11/model/"
+    # path_root = "/home/xle6/dvrk_teleop_data/0723_model/"
 
     mtm1 = ARM(MTML, 'MTML', 
-               firstjoints_onnxpath=path_root+"best-master1-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master1-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master1-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master1-strong-Last-stat_params.npz")
+               firstjoints_onnxpath=path_root+"master1-First.onnx", 
+               firstjoints_parampath=path_root+"master1-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1-Last.onnx", 
+               lastjoints_parampath=path_root+"master1-Last-stat_params.npz")
     mtm2 = ARM(MTMR, 'MTMR',
-               firstjoints_onnxpath=path_root+"best-master2-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master2-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master2-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master2-strong-Last-stat_params.npz")
+               firstjoints_onnxpath=path_root+"master2-First.onnx", 
+               firstjoints_parampath=path_root+"master2-First-stat_params.npz", lastjoints_onnxpath=path_root+"master2-Last.onnx", 
+               lastjoints_parampath=path_root+"master2-Last-stat_params.npz")
     psm = ARM(PSM1, 'PSM1',
-              firstjoints_onnxpath=path_root+"best-puppet-strong-First.onnx", 
-               firstjoints_parampath=path_root+"puppet-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-puppet-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"puppet-strong-Last-stat_params.npz")
+              firstjoints_onnxpath=path_root+"puppet-First.onnx", 
+               firstjoints_parampath=path_root+"puppet-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet-Last.onnx", 
+               lastjoints_parampath=path_root+"puppet-Last-stat_params.npz")
 
     clutch = clutch
     coag = coag
