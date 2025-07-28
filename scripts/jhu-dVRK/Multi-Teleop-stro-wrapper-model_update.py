@@ -26,6 +26,7 @@ import time
 from scipy.spatial.transform import Rotation as R
 import cisstVectorPython as cisstVector
 import onnxruntime
+import openvino as ov
 
 
 class teleoperation:
@@ -102,9 +103,17 @@ class teleoperation:
         #####################################################################################
 
         # control law gain
-        self.force_gain = 0.2
-        self.velocity_gain = 0.8
+        self.force_gain = 0.35
+        self.velocity_gain = 1.1
 
+    def set_velocity_goal(self, v, base=1.12, max_gain=1.2, threshold=0.02):
+        norm = numpy.linalg.norm(v)
+        if norm < threshold:
+            gain = max_gain
+        else:
+            gain = base + (max_gain - base) * (threshold / norm)
+            gain = min(gain, max_gain)
+        return v * gain
 
     def set_vctFrm3(self, rotation=None, translation=None):
         vctFrm3 = cisstVector.vctFrm3()
@@ -390,55 +399,45 @@ class teleoperation:
         last_input = numpy.empty(6, dtype=numpy.float32)
         last_input[0:3] = q[3:6]
         last_input[3:6] = dq[3:6]
-        # print(f"input mean is: {component.firstmodel.input_mean}")
-        # print(f"input std is: {component.firstmodel.input_std}")
-        first_input = (first_input - component.firstmodel.input_mean) / component.firstmodel.input_std
-        last_input = (last_input - component.lastmodel.input_mean) / component.lastmodel.input_std
 
         component.buffer_first[0, component.buffer_pointer, :] = first_input
         component.buffer_last[0, component.buffer_pointer, :] = last_input
         component.buffer_pointer = (component.buffer_pointer + 1) % component.buffer_first.shape[1]
-        ort_first_input = numpy.roll(component.buffer_first,  component.buffer_pointer, axis=1)
-        ort_last_input  = numpy.roll(component.buffer_last,   component.buffer_pointer, axis=1)
 
-        # model predict
-        first_ort_inputs = {component.firstmodel.ort_session.get_inputs()[0].name: ort_first_input}
-        first_ort_outs = component.firstmodel.ort_session.run(None, first_ort_inputs)
-        last_ort_inputs = {component.lastmodel.ort_session.get_inputs()[0].name: ort_last_input}
-        last_ort_outs = component.lastmodel.ort_session.run(None, last_ort_inputs)
+        first_model_input = numpy.roll(component.buffer_first,  -component.buffer_pointer, axis=1)
+        last_model_input  = numpy.roll(component.buffer_last,   -component.buffer_pointer, axis=1)
+
+        # model inference
+        first_outs = component.firstmodel.infer(first_model_input)
+        last_outs = component.lastmodel.infer(last_model_input)
 
         # denormalize output
-        torque_Joint1_3 = first_ort_outs[0]
-        torque_Joint4_6 = last_ort_outs[0]
-        torque_Joint1_3 = torque_Joint1_3 * component.firstmodel.target_std + component.firstmodel.target_mean
-        torque_Joint4_6 = torque_Joint4_6 * component.lastmodel.target_std + component.lastmodel.target_mean
-
-        internal_torque = numpy.hstack((torque_Joint1_3, torque_Joint4_6))
-        external_torque = (total_torque - internal_torque)
+        component.internal_torque[0,:3] = first_outs[0]
+        component.internal_torque[0,3:] = last_outs[0]
+        component.external_torque[0,:6] = (total_torque - component.internal_torque)
 
         # convert to cartesian force
         if component.name.startswith('MTM'):
-            external_torque = numpy.concatenate((external_torque, numpy.array([[measured_torque[6]]])), axis=1)
-            # internal_torque = numpy.concatenate((internal_torque, numpy.array([[measured_torque[6]]])), axis=1)
+            component.external_torque[0,6] = measured_torque[6]
         J = component.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
-        external_force = numpy.linalg.pinv(J.T) @ external_torque.T
+        external_force = numpy.linalg.pinv(J.T) @ component.external_torque.T
 
         # """ recored inferred force for plot """
-        # internal_force = numpy.linalg.pinv(J.T) @ internal_torque.T
+        # internal_force = numpy.linalg.pinv(J.T) @ component.internal_torque.T
         # # print(f"internal force: {internal_force}")
         # # print(f"internal force shape: {internal_force.shape}")
         # if component.name.startswith('PSM'):
-        #     self.internal_torque_record_PSM.append(internal_torque.reshape(-1).tolist())
+        #     self.internal_torque_record_PSM.append(component.internal_torque.reshape(-1).tolist())
         #     self.total_torque_record_PSM.append(total_torque)
         #     self.internal_force_PSM.append(internal_force.reshape(-1).tolist())
   
         # elif component.name == 'MTML':
-        #     self.internal_torque_record_MTML.append(internal_torque.reshape(-1).tolist())
+        #     self.internal_torque_record_MTML.append(component.internal_torque.reshape(-1).tolist())
         #     self.total_torque_record_MTML.append(total_torque)
         #     self.internal_force_MTML.append(internal_force.reshape(-1).tolist())
 
         # else:
-        #     self.internal_torque_record_MTMR.append(internal_torque.reshape(-1).tolist())
+        #     self.internal_torque_record_MTMR.append(component.internal_torque.reshape(-1).tolist())
         #     self.total_torque_record_MTMR.append(total_torque)
         #     self.internal_force_MTMR.append(internal_force.reshape(-1).tolist())
    
@@ -450,7 +449,7 @@ class teleoperation:
         Forward Process
         """
         # Force channel
-        """ recorde cartesian force for plot """
+        """ record cartesian force for plot """
         master1_measured_cf = self.master1.body_measured_cf()   # (6,) numpy array
         master2_measured_cf = self.master2.body_measured_cf()   # (6,) numpy array
         puppet_measured_cf = self.puppet.body_measured_cf()
@@ -523,8 +522,9 @@ class teleoperation:
         master2_measured_cv[3:6] *= 0.2     
 
         # average velocity
-        puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
-
+        # puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
+        raw_puppet_velocity_goal = (master1_measured_cv + master2_measured_cv) / 2.0
+        puppet_velocity_goal = self.set_velocity_goal(v=raw_puppet_velocity_goal)
 
         # Move
         self.puppet.servo_cs(puppet_cartesian_goal, puppet_velocity_goal, force_goal)
@@ -553,8 +553,8 @@ class teleoperation:
         puppet_measured_trans, puppet_measured_rot = self.puppet.measured_cp()
         puppet_translation = puppet_measured_trans - puppet_initial_trans     ##### should it update puppet initial cartesian after forward process???
         puppet_translation /= self.scale
-        master1_translation /= self.scale
-        master2_translation /= self.scale
+        # master1_translation /= self.scale
+        # master2_translation /= self.scale
 
         # set translation of mtm1
         master1_translation_goal = (master2_translation + puppet_translation) / 2.0
@@ -588,9 +588,14 @@ class teleoperation:
         master2_measured_cv[0:3] /= self.velocity_scale
 
         # set velocity goal
-        master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
-        master2_velocity_goal = self.velocity_gain * (puppet_measured_cv + master1_measured_cv) / 2.0
+        # master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
+        # master2_velocity_goal = self.velocity_gain * (puppet_measured_cv + master1_measured_cv) / 2.0
 
+        raw_master1_velocity_goal = (puppet_measured_cv + master2_measured_cv) / 2.0
+        raw_master2_velocity_goal = (puppet_measured_cv + master1_measured_cv) / 2.0
+
+        master1_velocity_goal = self.set_velocity_goal(v=raw_master1_velocity_goal)
+        master2_velocity_goal = self.set_velocity_goal(v=raw_master2_velocity_goal)
 
         # Move
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
@@ -688,9 +693,7 @@ class teleoperation:
                     raise RuntimeError("Invalid state: {}".format(self.current_state))
                 now = time.time()
                 to_sleep = self.run_period - (now - last_time)
-                if self.a % 200 == 0:
-                    print(f'running time is {nowexit - last_time}')
-                    print(f'sleeping time is {to_sleep}')
+                print(f"Time cost relative to {self.run_period} is {to_sleep}")
                 time.sleep(to_sleep) if to_sleep > 0 else None
                 last_time = time.time()
                 
@@ -717,9 +720,10 @@ class teleoperation:
         print(f"data.txt saved!")
 
 class ARM:
-    class LoadModel:
-        def __init__(self, onnx_path, param_path):
-            self.ort_session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+    class OnnxModel:
+        def __init__(self, model_path, param_path):
+            self.ort_session = onnxruntime.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+
             norm_data = numpy.load(param_path)
             self.input_mean = norm_data['input_mean']
             self.input_std = norm_data['input_std']
@@ -727,19 +731,53 @@ class ARM:
             self.target_std = norm_data['target_std']
             self.seq_len = norm_data['seq_len']
 
-    def __init__(self, arm, name, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None):
+        def infer(self, raw_input):
+            input = (raw_input - self.input_mean) / self.input_std
+            ort_inputs = {self.ort_session.get_inputs()[0].name: input} 
+            ort_outs = self.ort_session.run(None, ort_inputs)[0]
+            net_result = ort_outs * self.target_std + self.target_mean
+            return net_result
+
+    class OvModel:
+        def __init__(self, model_path, param_path):
+            core = ov.Core()
+            self.model = core.compile_model(model_path, "AUTO")
+
+            norm_data = numpy.load(param_path)
+            self.input_mean = norm_data['input_mean']
+            self.input_std = norm_data['input_std']
+            self.target_mean = norm_data['target_mean']
+            self.target_std = norm_data['target_std']
+            self.seq_len = norm_data['seq_len']
+        
+        def infer(self, raw_input):
+            input = (raw_input - self.input_mean) / self.input_std
+            result = self.model(input)[0]
+            net_result = result * self.target_std + self.target_mean
+            return net_result
+
+
+    def __init__(self, arm, name, firstjoints_modelpath=None, firstjoints_parampath=None, lastjoints_modelpath=None, lastjoints_parampath=None, model_on=False, use_ov=False):
         self.arm = arm
         self.name = name
 
-        # load onnx model
-        if firstjoints_onnxpath is not None and firstjoints_parampath is not None:
-            self.firstmodel = self.LoadModel(firstjoints_onnxpath, firstjoints_parampath)
-            self.buffer_first = numpy.zeros((1, self.firstmodel.seq_len, 6), dtype=numpy.float32)
+        # load model
+        if model_on:
+            if use_ov:
+                self.firstmodel = self.OvModel(firstjoints_modelpath, firstjoints_parampath)
+                self.lastmodel = self.OvModel(lastjoints_modelpath, lastjoints_parampath)
+            else:
+                self.firstmodel = self.OnnxModel(firstjoints_modelpath, firstjoints_parampath)
+                self.lastmodel = self.OnnxModel(lastjoints_modelpath, lastjoints_parampath)
 
-        if lastjoints_onnxpath is not None and lastjoints_parampath is not None:
-            self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
+            self.buffer_first = numpy.zeros((1, self.firstmodel.seq_len, 6), dtype=numpy.float32)
             self.buffer_last = numpy.zeros((1, self.firstmodel.seq_len, 6), dtype=numpy.float32)
             self.buffer_pointer = 0
+            self.internal_torque = numpy.zeros((1, 6), dtype=numpy.float32)
+            if self.name in ("MTML", "MTMR"):
+                self.external_torque = numpy.zeros((1, 7), dtype=numpy.float32)
+            else:
+                self.external_torque = numpy.zeros((1, 6), dtype=numpy.float32)
     
     def measured_js(self):
         measured_js = self.arm.measured_js()
@@ -840,20 +878,27 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     from dvrk_system import *
+
+    # path_root = "/home/xle6/dvrk_teleop_data/0723_model/"
     path_root = "/home/xle6/dvrk_teleop_data/July_11/model/"
+    model_on = True
+    use_ov = False
+
+    core = ov.Core() if use_ov else None
+    suffix = ".xml" if use_ov else ".onnx"    
 
     mtm1 = ARM(MTML, 'MTML', 
-               firstjoints_onnxpath=path_root+"best-master1-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master1-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master1-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master1-strong-Last-stat_params.npz")
+               firstjoints_modelpath=path_root+"master1-First"+suffix, 
+               firstjoints_parampath=path_root+"master1-First-stat_params.npz", lastjoints_modelpath=path_root+"master1-Last"+suffix, 
+               lastjoints_parampath=path_root+"master1-Last-stat_params.npz", model_on=model_on, use_ov=use_ov)
     mtm2 = ARM(MTMR, 'MTMR',
-               firstjoints_onnxpath=path_root+"best-master2-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master2-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master2-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master2-strong-Last-stat_params.npz")
+               firstjoints_modelpath=path_root+"master2-First"+suffix, 
+               firstjoints_parampath=path_root+"master2-First-stat_params.npz", lastjoints_modelpath=path_root+"master2-Last"+suffix, 
+               lastjoints_parampath=path_root+"master2-Last-stat_params.npz", model_on=model_on, use_ov=use_ov)
     psm = ARM(PSM1, 'PSM1',
-              firstjoints_onnxpath=path_root+"best-puppet-strong-First.onnx", 
-               firstjoints_parampath=path_root+"puppet-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-puppet-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"puppet-strong-Last-stat_params.npz")
+              firstjoints_modelpath=path_root+"puppet-First"+suffix, 
+               firstjoints_parampath=path_root+"puppet-First-stat_params.npz", lastjoints_modelpath=path_root+"puppet-Last"+suffix, 
+               lastjoints_parampath=path_root+"puppet-Last-stat_params.npz", model_on=model_on, use_ov=use_ov)
 
     clutch = clutch
     coag = coag
