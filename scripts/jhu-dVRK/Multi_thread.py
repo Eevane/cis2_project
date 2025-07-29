@@ -810,7 +810,7 @@ class ARM:
         # model inference ##################################################################################################################
     def externalforce_prediction(self):
         # measured_js returns 6 joints for PSM, 7 joints for MTM
-        measured_q, measured_dq, measured_torque = self.arm.measured_js()
+        measured_q, measured_dq, measured_torque = self.measured_js()
         q = measured_q[:6]
         dq = measured_dq[:6]
         total_torque = measured_torque[:6]
@@ -822,34 +822,34 @@ class ARM:
 
         # print(f"input mean is: {component.firstmodel.input_mean}")
         # print(f"input std is: {component.firstmodel.input_std}")
-        first_input = (first_input - self.arm.firstmodel.input_mean) / self.arm.firstmodel.input_std
-        last_input = (last_input - self.arm.lastmodel.input_mean) / self.arm.lastmodel.input_std
+        first_input = (first_input - self.firstmodel.input_mean) / self.firstmodel.input_std
+        last_input = (last_input - self.lastmodel.input_mean) / self.lastmodel.input_std
 
         first_input = numpy.expand_dims(first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
         last_input = numpy.expand_dims(last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-        if self.arm == self.master1:
+        if self.name == 'MTML':
             self.queue_MTML_first3 = numpy.concatenate((self.queue_MTML_first3, first_input), axis=1)
             self.queue_MTML_last3 = numpy.concatenate((self.queue_MTML_last3, last_input), axis = 1)
             self.queue_MTML_first3 = self.queue_MTML_first3[:, 1:, :]
             self.queue_MTML_last3 = self.queue_MTML_last3[:, 1:, :]
 
             # model predict
-            first_ort_inputs = {self.arm.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTML_first3.astype(numpy.float32)}
-            first_ort_outs = self.arm.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {self.arm.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTML_last3.astype(numpy.float32)}
-            last_ort_outs = self.arm.lastmodel.ort_session.run(None, last_ort_inputs)
+            first_ort_inputs = {self.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTML_first3.astype(numpy.float32)}
+            first_ort_outs = self.firstmodel.ort_session.run(None, first_ort_inputs)
+            last_ort_inputs = {self.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTML_last3.astype(numpy.float32)}
+            last_ort_outs = self.lastmodel.ort_session.run(None, last_ort_inputs)
 
-        elif self.arm == self.master2:
+        elif self.name == 'MTMR':
             self.queue_MTMR_first3 = numpy.concatenate((self.queue_MTMR_first3, first_input), axis=1)
             self.queue_MTMR_last3 = numpy.concatenate((self.queue_MTMR_last3, last_input), axis = 1)
             self.queue_MTMR_first3 = self.queue_MTMR_first3[:, 1:, :]
             self.queue_MTMR_last3 = self.queue_MTMR_last3[:, 1:, :]
 
             # model predict
-            first_ort_inputs = {self.arm.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_first3.astype(numpy.float32)}
-            first_ort_outs = self.arm.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {self.arm.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_last3.astype(numpy.float32)}
-            last_ort_outs = self.arm.lastmodel.ort_session.run(None, last_ort_inputs)
+            first_ort_inputs = {self.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_first3.astype(numpy.float32)}
+            first_ort_outs = self.firstmodel.ort_session.run(None, first_ort_inputs)
+            last_ort_inputs = {self.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_last3.astype(numpy.float32)}
+            last_ort_outs = self.lastmodel.ort_session.run(None, last_ort_inputs)
 
         else:
             self.queue_PSM_first3 = numpy.concatenate((self.queue_PSM_first3, first_input), axis=1)
@@ -858,39 +858,39 @@ class ARM:
             self.queue_PSM_last3 = self.queue_PSM_last3[:, 1:, :]
 
             # model predict
-            first_ort_inputs = {self.arm.firstmodel.ort_session.get_inputs()[0].name: self.queue_PSM_first3.astype(numpy.float32)}
-            first_ort_outs = self.arm.firstmodel.ort_session.run(None, first_ort_inputs)
-            last_ort_inputs = {self.arm.lastmodel.ort_session.get_inputs()[0].name: self.queue_PSM_last3.astype(numpy.float32)}
-            last_ort_outs = self.arm.lastmodel.ort_session.run(None, last_ort_inputs)
+            first_ort_inputs = {self.firstmodel.ort_session.get_inputs()[0].name: self.queue_PSM_first3.astype(numpy.float32)}
+            first_ort_outs = self.firstmodel.ort_session.run(None, first_ort_inputs)
+            last_ort_inputs = {self.lastmodel.ort_session.get_inputs()[0].name: self.queue_PSM_last3.astype(numpy.float32)}
+            last_ort_outs = self.lastmodel.ort_session.run(None, last_ort_inputs)
 
 
         # denormalize output
         torque_Joint1_3 = first_ort_outs[0]
         torque_Joint4_6 = last_ort_outs[0]
 
-        torque_Joint1_3 = torque_Joint1_3 * self.arm.firstmodel.target_std + self.arm.firstmodel.target_mean
-        torque_Joint4_6 = torque_Joint4_6 * self.arm.lastmodel.target_std + self.arm.lastmodel.target_mean
+        torque_Joint1_3 = torque_Joint1_3 * self.firstmodel.target_std + self.firstmodel.target_mean
+        torque_Joint4_6 = torque_Joint4_6 * self.lastmodel.target_std + self.lastmodel.target_mean
 
         internal_torque = numpy.hstack((torque_Joint1_3, torque_Joint4_6))
         external_torque = (total_torque - internal_torque)
 
         # convert to cartesian force
-        if self.arm.name.startswith('MTM'):
+        if self.name.startswith('MTM'):
             external_torque = numpy.concatenate((external_torque, numpy.array([[measured_torque[6]]])), axis=1)
             internal_torque = numpy.concatenate((internal_torque, numpy.array([[measured_torque[6]]])), axis=1)
-        J = self.arm.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
+        J = self.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
         external_force = numpy.linalg.pinv(J.T) @ external_torque.T
 
         """ recored inferred force for plot """
         internal_force = numpy.linalg.pinv(J.T) @ internal_torque.T
         # print(f"internal force: {internal_force}")
         # print(f"internal force shape: {internal_force.shape}")
-        if self.arm.name.startswith('PSM'):
+        if self.name.startswith('PSM'):
             self.internal_torque_record_PSM.append(internal_torque.reshape(-1).tolist())
             self.total_torque_record_PSM.append(total_torque)
             self.internal_force_PSM.append(internal_force.reshape(-1).tolist())
 
-        elif self.arm.name == 'MTML':
+        elif self.name == 'MTML':
             self.internal_torque_record_MTML.append(internal_torque.reshape(-1).tolist())
             self.total_torque_record_MTML.append(total_torque)
             self.internal_force_MTML.append(internal_force.reshape(-1).tolist())
