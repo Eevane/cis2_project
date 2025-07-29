@@ -27,7 +27,8 @@ from scipy.spatial.transform import Rotation as R
 import cisstVectorPython as cisstVector
 import onnxruntime
 import threading
-from queue import Queue
+from queue import Queue, Empty
+
 
 master1_external_f_queue = Queue(maxsize=1)
 master2_external_f_queue = Queue(maxsize=1)
