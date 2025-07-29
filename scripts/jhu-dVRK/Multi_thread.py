@@ -927,7 +927,7 @@ class model(threading.Thread):
 
     def run(self):
         while self.running:
-            print(f"model is running at {1/self.interval}hz")
+            # print(f"model is running at {1/self.interval}hz")
             start_time = time.time()
             # master1
             master1_external_f = self.master1.externalforce_prediction()   # (6,) numpy array
