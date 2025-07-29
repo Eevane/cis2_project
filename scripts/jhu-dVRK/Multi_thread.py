@@ -403,28 +403,40 @@ class teleoperation:
         puppet_measured_cf = self.puppet.body_measured_cf()
         """  """
 
+
         # master1
-        if not master1_external_f_queue.empty():
-            master1_external_f = master1_external_f_queue.get()
-        else:
-            master1_external_f = master1_measured_cf
-            master1_external_f[0:3] *= -1.0
-            master1_external_f[3:6] *= 0   # turn off torque
+        try:
+            master1_external_f = master1_external_f_queue.get_nowait()
+            master1_external_f = numpy.asarray(master1_external_f, dtype=float).reshape(-1)
+        except Empty:
+            master1_external_f = numpy.asarray(master1_measured_cf, dtype=float).reshape(-1).copy()
+            master1_external_f[:3] *= -1.0
+            if master1_external_f.size >= 6:
+                master1_external_f[3:6] = 0.0  # turn off torque
+        
+        # master2
+        try:
+            master2_external_f = master2_external_f_queue.get_nowait()
+            master2_external_f = numpy.asarray(master2_external_f, dtype=float).reshape(-1)
+        except Empty:
+            master2_external_f = numpy.asarray(master2_measured_cf, dtype=float).reshape(-1).copy()
+            master2_external_f[:3] *= -1.0
+            if master2_external_f.size >= 6:
+                master2_external_f[3:6] = 0.0  # turn off torque
+        
+        # puppet
+        try:
+            puppet_external_f = puppet_external_f_queue.get_nowait()
+            puppet_external_f = numpy.asarray(puppet_external_f, dtype=float).reshape(-1)
+        except Empty:
+            puppet_external_f = numpy.asarray(puppet_measured_cf, dtype=float).reshape(-1).copy()
+            puppet_external_f[:3] *= -1.0
+            if puppet_external_f.size >= 6:
+                puppet_external_f[3:6] = 0.0  # turn off torque
 
-        if not master2_external_f_queue.empty():
-            master2_external_f = master2_external_f_queue.get()
-        else:
-            master2_external_f = master2_measured_cf
-            master2_external_f[0:3] *= -1.0
-            master2_external_f[3:6] *= 0   # turn off torque
 
-        if not puppet_external_f_queue.empty():
-            puppet_external_f = puppet_external_f_queue.get()
-        else:
-            puppet_external_f = puppet_measured_cf
-            puppet_external_f[0:3] *= -1.0
-            puppet_external_f[3:6] *= 0   # turn off torque
 
+        
         # force input
         gamma = 0.714
         force_goal = self.force_gain * (self.beta * master1_external_f + (1 - self.beta) * master2_external_f + gamma * puppet_external_f)
