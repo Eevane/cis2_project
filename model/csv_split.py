@@ -37,9 +37,9 @@ def split_csv_by_column(input_path, output_dir, entities, keywords, save_name, c
 
 
 if __name__ == "__main__":
-    dataset_root = "../../Dataset/0724/"
-    output_path = ["train"]
-    input_path  = ["6140359.458113-MTMR-Mul-Train-joint_data.csv"]
+    dataset_root = "../../Dataset/0801_850Hz/"
+    output_path = ["test"]
+    input_path  = ["6821.775804-MTMR-Mul-Test-joint_data.csv"]
 #                   "3288280.803231152-joint_data.csv"]
     entities = ['master2', 'puppet']
     save_name = ['master2', 'puppet']

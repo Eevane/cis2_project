@@ -7,7 +7,6 @@ import time
 
 # Dataloader
 import torch
-from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
 
@@ -164,19 +163,19 @@ def train(component, model, training_dataloader, testing_dataloader, optimizer, 
 
 
 if __name__ == "__main__":
+    batch_size = 64
+    lr = 1e-5
+    num_epochs = 100
+    seq_len= 5
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     component = 'puppet-Last'
-    training_file_path = f"../../Dataset/0724/train/{component}ThreeJoints.csv"
-    test_file_path = f"../../Dataset/0724/test/{component}ThreeJoints.csv"
-    output_path = "../../Dataset/0724/checkpoints/"
+    training_file_path = f"../../Dataset/0801_850Hz/train/{component}ThreeJoints.csv"
+    test_file_path = f"../../Dataset/0801_850Hz/train/{component}ThreeJoints.csv"
+    output_path = f"../../Dataset/0801_850Hz/checkpoints/len{seq_len}/"
 
     if not os.path.exists(output_path):
         os.makedirs(output_path)
-
-    batch_size = 64
-    lr = 1e-5
-    num_epochs = 80
-    seq_len= 50
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     seed = 42
     torch.manual_seed(seed)

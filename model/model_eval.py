@@ -11,16 +11,18 @@ def to_numpy(tensor):
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
 # input path
-component = 'puppet-First'
-testing_file_path = f"../../Dataset/0724/test/{component}ThreeJoints.csv"
-model_path = f"../../Dataset/0724/checkpoints/best-{component}.pth.tar"
+component = 'master2-Last'
+path_root = "../../Dataset/0801_850Hz"
+length = 5
+testing_file_path = f"{path_root}/test/{component}ThreeJoints.csv"
+model_path = f"{path_root}/checkpoints/len{length}/best-{component}.pth.tar"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 onnx_save = True
-onnx_test = False
-openvino_save = True
+onnx_test = True
+openvino_save = False
 
 # load param
-norm_data = np.load(f"../../Dataset/0724/checkpoints/{component}-stat_params.npz")
+norm_data = np.load(f"{path_root}/checkpoints/len{length}/{component}-stat_params.npz")
 input_mean = torch.tensor(norm_data['input_mean'], dtype=torch.float32)
 input_std = torch.tensor(norm_data['input_std'], dtype=torch.float32)
 target_mean = torch.tensor(norm_data['target_mean'], dtype=torch.float32)
@@ -34,7 +36,8 @@ model.to(device)
 model.eval()
 
 val_dataset = JointDataset(testing_file_path, seq_len=seq_len, mode='evaluation', in_mean=input_mean, in_std=input_std, tar_mean=target_mean, tar_std=target_std)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+print(f"test dataset length: {len(val_loader)}")
 
 total_se = torch.zeros(3, device=device)
 total_n = 0
@@ -50,9 +53,9 @@ nrmse_percent = rmse / val_dataset.target_range.to(device) * 100
 print(f"NRMSE on validation set: {nrmse_percent.tolist()}%")
 print("")
 
+onnx_path = f"{path_root}/checkpoints/len{length}/"
 if onnx_save:
     # output path
-    onnx_path = f"../../Dataset/0724/checkpoints/"
     if not os.path.exists(onnx_path):
         os.makedirs(onnx_path)
 
