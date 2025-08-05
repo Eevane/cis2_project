@@ -29,7 +29,7 @@ import onnxruntime
 import threading
 from queue import Queue, Empty
 from model_merge import ModelMerger
-import csv
+
 master1_external_f_queue = Queue(maxsize=1)
 master2_external_f_queue = Queue(maxsize=1)
 puppet_external_f_queue = Queue(maxsize=1)
@@ -124,17 +124,6 @@ class teleoperation:
         self.master1_internal_force = 0.0
         self.master2_internal_force = 0.0
         self.puppet_internal_force = 0.0
-
-
-        """for recording"""
-        self.start_time = time.monotonic()
-        self.recording_enabled = False
-        self.record_size = 0
-
-        self.output_csv_path = f"/home/xle6/dvrk_teleop_data/Aug_05/{self.start_time:.6f}-MTML-First-Test-joint_data.csv"
-        self.csv_file = open(self.output_csv_path, "a", newline='')
-        self.csv_writer = csv.writer(self.csv_file)
-        self.header_written = os.path.getsize(self.output_csv_path) > 0
 
     def set_velocity_goal(self, v, base=1.10, max_gain=1.18, threshold=0.1):
         norm = numpy.linalg.norm(v)
@@ -670,58 +659,6 @@ class teleoperation:
 
 
 
-
-        '''For recording'''
-        current_time = time.monotonic()
-        print(f"recording enabled: {self.recording_enabled}")
-        if not self.recording_enabled and float(current_time - self.start_time) >= 30.0:
-            print("Start recording joint data")
-            self.recording_enabled = True
-
-        if self.recording_enabled and self.record_size >= 50000:
-            print("Auto stopping: 100000 series of data acquired.")
-            # time.strftime("%Y-%m-%d %H:%M:%S", current_time)
-            # time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
-            print(f"start_time: {self.start_time}")
-            print(f"end_time: {current_time}")
-            self.recording_enabled = False
-            self.running = False
-
-        if self.recording_enabled:
-            self.record_size += 1
-            print("Recording data.")
-
-            timestamp = time.time()
-
-            master1_q, master1_dq, master1_torque = self.master1.measured_js()
-            master1_q = master1_q[:6].tolist()
-            master1_dq = master1_dq[:6].tolist()
-            master1_torque = master1_torque[:6].tolist()
-
-
-            master2_q, master2_dq, master2_torque = self.master2.measured_js()
-            master2_q = master2_q[:6].tolist()
-            master2_dq = master2_dq[:6].tolist()
-            master2_torque = master2_torque[:6].tolist()
-
-            puppet_q, puppet_dq, puppet_torque = self.puppet.measured_js()
-            puppet_q = puppet_q.tolist()
-            puppet_dq = puppet_dq.tolist()
-            puppet_torque = puppet_torque.tolist()
-
-            row = [timestamp] + master1_q + master1_dq + master1_torque + master2_q + master2_dq + master2_torque + puppet_q + puppet_dq + puppet_torque
-
-            if not self.header_written:
-                headers = ['timestamp'] + \
-                        [f'master1_q{i}' for i in range(6)] + [f'master1_dq{i}' for i in range(6)] + [f'master1_tau{i}' for i in range(6)] + \
-                        [f'master2_q{i}' for i in range(6)] + [f'master2_dq{i}' for i in range(6)] + [f'master2_tau{i}' for i in range(6)] + \
-                        [f'puppet_q{i}' for i in range(6)]  + [f'puppet_dq{i}' for i in range(6)]  + [f'puppet_tau{i}' for i in range(6)]
-                self.csv_writer.writerow(headers)
-                self.header_written = True
-
-            self.csv_writer.writerow(row)
-
-
     def home(self):
         print("Homing arms...")
         system.home()
@@ -808,31 +745,31 @@ class teleoperation:
                 
         except KeyboardInterrupt:
             print("Program stopped!")
-            #model_thread.stop()
+            model_thread.stop()
             system.power_off()
 
 
-        # # save data
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTML_total_force.txt', self.total_force_MTML, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTMR_total_force.txt', self.total_force_MTMR, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/PSM_total_force.txt', self.total_force_PSM, fmt='%f', delimiter=' ', comments='')
+        # save data
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTML_total_force.txt', self.total_force_MTML, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTMR_total_force.txt', self.total_force_MTMR, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/PSM_total_force.txt', self.total_force_PSM, fmt='%f', delimiter=' ', comments='')
 
 
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_internal.txt', internal_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_total.txt', total_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_force.txt', internal_force_PSM, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_internal.txt', internal_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_total.txt', total_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_force.txt', internal_force_MTML, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_internal.txt', internal_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_total.txt', total_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_force.txt', internal_force_MTMR, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_internal.txt', internal_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_total.txt', total_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_force.txt', internal_force_PSM, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_internal.txt', internal_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_total.txt', total_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_force.txt', internal_force_MTML, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_internal.txt', internal_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_total.txt', total_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_force.txt', internal_force_MTMR, fmt='%f', delimiter=' ', comments='')
 
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_CF.txt', cartesian_force_MTML, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_CF.txt', cartesian_force_MTMR, fmt='%f', delimiter=' ', comments='')
-        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_CF.txt', cartesian_force_PSM, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_CF.txt', cartesian_force_MTML, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_CF.txt', cartesian_force_MTMR, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_CF.txt', cartesian_force_PSM, fmt='%f', delimiter=' ', comments='')
         print(f"data.txt saved!")
 
 class ARM:
@@ -1261,6 +1198,10 @@ class model(threading.Thread):
         model_name = model_merger.model_names
         output_names = [f"{name}output" for name in model_name]
 
+        # ### output name test
+        # for output in ort_session.get_outputs():
+        #     print(output.name)
+
 
         outputs = ort_session.run(output_names, inputs) # m1_first, m1_last, m2_first, m2_last, p_first, p_last
 
@@ -1375,6 +1316,7 @@ if __name__ == '__main__':
     #            firstjoints_parampath=path_root+"puppet-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet-strong-Last.onnx", 
     #            lastjoints_parampath=path_root+"puppet-strong-Last-stat_params.npz")
 
+    # path_root = "/home/xle6/dvrk_teleop_data/Aug_04/checkpoints/"
     path_root = "/home/xle6/dvrk_teleop_data/Aug_03/model/len10/"
     # path_root = "/home/xle6/dvrk_teleop_data/July_11/model/"
     mtm1 = ARM(MTML, 'MTML', 
@@ -1407,9 +1349,9 @@ if __name__ == '__main__':
         print("Models merged successfully.")
 
     # load merged model
-    # ort_session = onnxruntime.InferenceSession(path_root + "merged_model.onnx", providers=["CPUExecutionProvider"])
-    # model_thread = model(mtm1, mtm2, psm, freq=200)  
-    # model_thread.start()
+    ort_session = onnxruntime.InferenceSession(path_root + "merged_model.onnx", providers=["CPUExecutionProvider"])
+    model_thread = model(mtm1, mtm2, psm, freq=200)  
+    model_thread.start()
     application.run()
      
     system.power_off()
