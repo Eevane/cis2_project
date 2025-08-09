@@ -18,7 +18,7 @@
     "arms":
     [
         {
-            "name": "PSM",
+            "name": "PSM1",
             "type": "PSM",
             "IO": "IO_1",
       //      "IO_file": "/home/xle6/dvrk_teleop_data/sawRobotIO1394-PSM1-28007.xml",
@@ -34,7 +34,7 @@
         }
         ,
         {
-            "name": "MTML",
+            "name": "MTML1",
             "type": "MTM",
             "IO": "IO_1",
             "serial": "22723",
@@ -49,7 +49,7 @@
         }
         ,
         {
-            "name": "MTMR",
+            "name": "MTMR1",
             "type": "MTM",
             "serial": "28247",
             "IO": "IO_1",
@@ -115,57 +115,24 @@
             "teleop_PSMs":
             [
                 {
-                    "MTM": "MTML",
-                    "PSM": "PSM"
+                    "MTM": "MTML1",
+                    "PSM": "PSM1"
                 }
                 ,
-                //{
-                //    "MTM": "MTML",
-                //    "PSM": "PSM"
-                //}
-                //,
-                {
-                    "MTM": "MTMR",
-                    "PSM": "PSM"
-                }
-               // ,
-               // {
-               //     "MTM": "MTMR",
-               //     "PSM": "PSM"
-               // }
-            ]
-        }
-        ,
-        {
-            "name": "console2",
-            "input_type": "PEDALS_ONLY",
-            "IO_pedals" :
-            {
-                "IO": "IO_2",
-                "IO_file": "io/sawRobotIO1394-MTMR-foot-pedals.xml"
-            }
-            ,
-            "teleop_PSMs":
-            [
                 {
                     "MTM": "MTML2",
-                    "PSM": "PSM"
+                    "PSM": "PSM1"
                 }
                 ,
-                //{
-                //    "MTM": "MTML",
-                //    "PSM": "PSM"
-                //}
-                //,
+                {
+                    "MTM": "MTMR1",
+                    "PSM": "PSM1"
+                }
+                ,
                 {
                     "MTM": "MTMR2",
-                    "PSM": "PSM"
+                    "PSM": "PSM1"
                 }
-               // ,
-               // {
-               //     "MTM": "MTMR",
-               //     "PSM": "PSM"
-               // }
             ]
         }
     ]
