@@ -33,7 +33,7 @@ class teleoperation:
         CLUTCHED = 2
         FOLLOWING = 3
 
-    def __init__(self, mtm1, mtm2, puppet, clutch_topic, run_period, align_mtm, operator_present_topic="", alpha = 0.5, beta = 0.5):
+    def __init__(self, mtm1, mtm2, puppet, clutch_topic, run_period, align_mtm, operator_present_topic="", alpha = 0.5):
         print('Initialzing dvrk_teleoperation for {}, {} and {}'.format(mtm1.name, mtm2.name, puppet.name))
         print(f"running at frequency of {1/run_period}")
         self.run_period = run_period
@@ -44,7 +44,6 @@ class teleoperation:
 
         # dominance factor
         self.alpha = alpha
-        self.beta = beta
 
         self.scale = 0.2
         self.velocity_scale = 0.2
@@ -404,7 +403,7 @@ class teleoperation:
 
         # force input
         gamma = 0.714
-        force_goal = self.force_gain * (self.beta * master1_measured_cf + (1 - self.beta) * master2_measured_cf + gamma * puppet_measured_cf)
+        force_goal = self.force_gain * (self.alpha * master1_measured_cf + (1 - self.alpha) * master2_measured_cf + gamma * puppet_measured_cf)
 
 
         # Position channel
@@ -485,8 +484,8 @@ class teleoperation:
         puppet_measured_trans, puppet_measured_rot = self.puppet.measured_cp()
         puppet_translation = puppet_measured_trans - puppet_initial_trans     ##### should it update puppet initial cartesian after forward process???
         puppet_translation /= self.scale
-        master1_translation /= self.scale
-        master2_translation /= self.scale
+        # master1_translation /= self.scale
+        # master2_translation /= self.scale
 
         # set translation of mtm1
         master1_translation_goal = self.position_gain * puppet_translation
@@ -495,16 +494,21 @@ class teleoperation:
         master2_translation_goal = self.position_gain * puppet_translation
         master2_position = master2_translation_goal + master2_initial_trans
 
-        # set rotation of mtm1
-        master2_rotation_alignment_ToMaster1 = master2_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
-        puppet_rotation_alignment_ToMaster1 = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
-        # set rotation of mtm2
-        master1_rotation_alignment_ToMaster2 = master1_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
-        puppet_rotation_alignment_ToMaster2 = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
+        # # set rotation of mtm1
+        # master2_rotation_alignment_ToMaster1 = master2_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
+        # puppet_rotation_alignment_ToMaster1 = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
+        # # set rotation of mtm2
+        # master1_rotation_alignment_ToMaster2 = master1_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
+        # puppet_rotation_alignment_ToMaster2 = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
 
-        # average rotation
-        master1_rotation = self.average_rotation(master2_rotation_alignment_ToMaster1, puppet_rotation_alignment_ToMaster1)
-        master2_rotation = self.average_rotation(master1_rotation_alignment_ToMaster2, puppet_rotation_alignment_ToMaster2)
+        # # average rotation
+        # master1_rotation = self.average_rotation(master2_rotation_alignment_ToMaster1, puppet_rotation_alignment_ToMaster1)
+        # master2_rotation = self.average_rotation(master1_rotation_alignment_ToMaster2, puppet_rotation_alignment_ToMaster2)
+
+        # set rotation of mtm1
+        master1_rotation = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
+        # set rotation of mtm2
+        master2_rotation = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
 
         # set cartesian goal of mtm1 and mtm2
         master1_cartesian_goal = self.set_vctFrm3(rotation=master1_rotation, translation=master1_position)
@@ -516,29 +520,20 @@ class teleoperation:
         puppet_measured_cv[0:3] /= self.velocity_scale      # scale the linear velocity
         puppet_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
 
-        master1_measured_cv[0:3] /= self.velocity_scale
-        master2_measured_cv[0:3] /= self.velocity_scale
+        # master1_measured_cv[0:3] /= self.velocity_scale
+        # master2_measured_cv[0:3] /= self.velocity_scale
 
         # set velocity goal
         # master1_velocity_goal = self.velocity_gain * (puppet_measured_cv)
         # master2_velocity_goal = self.velocity_gain * (puppet_measured_cv)
 
-        raw_master1_velocity_goal = puppet_measured_cv
-        raw_master2_velocity_goal = puppet_measured_cv
+        master1_velocity_goal = self.set_velocity_goal(v=puppet_measured_cv)
+        master2_velocity_goal = self.set_velocity_goal(v=puppet_measured_cv)
 
-        master1_velocity_goal = self.set_velocity_goal(v=raw_master1_velocity_goal)
-        master2_velocity_goal = self.set_velocity_goal(v=raw_master2_velocity_goal)
-
-
-        # # Move
-        # self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
-        # self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
         # Move
-        if self.alpha > 1e-8:
-            self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
-        if (1 - self.alpha) > 1e-8:
-            self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
+        self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
+        self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
         """
         record plotting data
@@ -741,9 +736,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description = __doc__,
                                      formatter_class = argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-a', '--alpha', type = float, required = False, default= 0.5,
-                         help = 'dominance factor alpha, between 0 and 1')
-    parser.add_argument('-b', '--beta', type = float, required = False, default= 0.5,
-                         help = 'dominance factor beta, between 0 and 1')
+                         help = 'dominance factor, between 0 and 1')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")
     parser.add_argument('-i', '--interval', type=float, default=0.00066,
@@ -759,6 +752,6 @@ if __name__ == '__main__':
     coag = coag
 
     application = teleoperation(mtm1, mtm2, psm, clutch, args.interval,
-                                not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha, beta = args.beta)
+                                not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha)
      
     application.run()
