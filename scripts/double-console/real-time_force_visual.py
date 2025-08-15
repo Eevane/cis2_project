@@ -1,13 +1,21 @@
+""" force detection visualization - for multi-teleop experiment """
+
 import sys
 from PyQt5 import QtWidgets, QtCore
 import pyqtgraph as pg
-import random
 import math
+import random
 import numpy as np
-from NetFT import Sensor
+
+import argparse
+import crtk
+import geometry_msgs.msg
+import PyKDL
+import std_msgs.msg
+import time
 
 class ForceVisualization(QtWidgets.QMainWindow):
-    def __init__(self):
+    def __init__(self, sensor, update_interval):
         super().__init__()
         self.setWindowTitle("Two Horizontal Bars")
         self.resize(3000, 3000)
@@ -19,13 +27,13 @@ class ForceVisualization(QtWidgets.QMainWindow):
         central_widget.setLayout(layout)
 
         # PlotWidget of force magnitude
-        plot1_range = 100
+        self.plot1_range = 100
 
         self.plot1 = pg.PlotWidget()
         self.plot1.setBackground('w')
-        self.plot1.setXRange(0, plot1_range)
+        self.plot1.setXRange(0, self.plot1_range)
         self.plot1.setYRange(-0.5, 0.5)
-        self.plot1.setTitle("Force Magnitude", color="k", size="16pt")
+        self.plot1.getPlotItem().setTitle("Force Magnitude", color="k", size="16pt")
         layout.addWidget(self.plot1)
 
         self.bar = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[0], brush='skyblue')
@@ -46,7 +54,7 @@ class ForceVisualization(QtWidgets.QMainWindow):
         self.plot1.addItem(red_zone)
 
         # set border
-        bar_border = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[plot1_range], brush=None, pen=pg.mkPen(color='black', width=2))
+        bar_border = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[self.plot1_range], brush=None, pen=pg.mkPen(color='black', width=2))
         self.plot1.addItem(bar_border)
 
         # data initialization
@@ -64,36 +72,35 @@ class ForceVisualization(QtWidgets.QMainWindow):
         self.plot2.setXRange(-20, 20)
         self.plot2.setYRange(-20, 20)
         self.plot2.setAspectLocked(True)
-        self.plot2.setTitle("Force Angle", color="k", size="16pt")
+        self.plot2.getPlotItem().setTitle("Force Vector (XY)", color="k", size="14pt")
         layout.addWidget(self.plot2)
 
         # set red zone
         r = 12
         theta = np.linspace(0, 2*np.pi, 100)
-        x = r * np.cos(theta)
-        y = r * np.sin(theta)
-        self.red_zone_cir = self.plot2.plot(x, y, pen=None, brush=pg.mkBrush(255,0,0,50), fillLevel=0)
+        cx = r * np.cos(theta)
+        cy = r * np.sin(theta)
+        self.plot2.plot(cx, cy, pen=None, brush=pg.mkBrush(255,0,0,50), fillLevel=0)
 
         # origin marker
         self.origin_marker = self.plot2.plot([0], [0], pen=None, symbol='o', symbolBrush='red', symbolSize=12)
+        self.vector_line = self.plot2.plot([0, 0], [0, 0], pen=pg.mkPen('skyblue', width=4))
 
         ###################################################
         
         # initialize force sensor
-        self.sensor = Sensor('IP Address!')
+        self.sensor = sensor
+        self.update_interval = int(update_interval * 1000)
 
         # set timer to update
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plots)
-        self.timer.start(100)
+        self.timer.start(self.update_interval)
 
-    def update_plots(self):
-        force_mag, angle_x, angle_z = self.force_processing()
-        if force_mag is None:
-            pass
-
+    def update_plots_simulation(self):
         # force magnitude update
-        self.bar.setOpts(width=[force_mag])
+        bar_value = random.randint(0, 100)
+        self.bar.setOpts(width=[bar_value])
 
         # force angle update
         # delete previous vector line (keep red circle and origin)
@@ -102,42 +109,64 @@ class ForceVisualization(QtWidgets.QMainWindow):
                 self.plot2.removeItem(item)
 
         # generate random vector
-        x = angle_z * math.cos(math.radians(angle_x))
-        y = angle_z * math.sin(math.radians(angle_x))
+        r = random.uniform(0, 15)
+        theta_deg = random.uniform(0, 360)
+        x = r * math.cos(math.radians(theta_deg))
+        y = r * math.sin(math.radians(theta_deg))
 
         # plot vector
         self.plot2.plot([0, x], [0, y], pen=pg.mkPen('skyblue', width=6))
-    
-    def force_processing(self):
-        force_data = self.sensor.getForce()
-        if force_data:
-            # compute magnitude and angle of force vector
-            force_mag = np.linalg.norm(force_data)
 
-            refer_x = [0, 0, 1]
-            angle_x = self.get_vec_angle(force_data, refer_x)
-
-            refer_z = [0, 0, 1]
-            angle_z = self.get_vec_angle(force_data, refer_z)
-            return force_mag, angle_x, angle_z
-        else:
-            return None, None, None
+    def update_plots(self):
+        # query data from the force sensor
+        try:
+            wrench = self.sensor.measured_cf()[0]
+            if wrench is None:
+                return
+            fx, fy, fz = wrench[0], wrench[1], wrench[2]
+        except Exception as e:
+            # don't let exceptions kill the timer
+            print("Sensor read error:", e)
+            return
         
-    def get_vec_angle(self, v1, v2):
-        dot_product = np.dot(v1, v2)
-        norm_v1 = np.linalg.norm(v1)
-        norm_v2 = np.linalg.norm(v2)
+        # force magnitude update
+        force_mag = float(np.linalg.norm([fx,fy,fz]))
+        self.bar.setOpts(width=[min(force_mag, self.plot1_range)])
 
-        cos_theta = dot_product / (norm_v1 * norm_v2)
-        cos_theta = np.clip(cos_theta, -1.0, 1.0)
-        angle_rad = np.arccos(cos_theta)
-
-        # # rad 2 deg
-        # angle_deg = np.degrees(angle_rad)
-        return angle_rad
+        # force angle update
+        self.vector_line.setData([0, fx], [0, fy])
     
-if __name__ == '__main__':
+class ForceSensor:
+    def __init__(self, ral, arm_name, timeout):
+        self.name = arm_name
+        # self.ral = ral.create_child(arm_name)
+        self.ral = ral
+        self.utils = crtk.utils(self, self.ral, timeout)
+        self.utils.add_measured_cf()
+
+
+if __name__ == '__main__':    
+    # parse arguments
+    parser = argparse.ArgumentParser(description = __doc__,
+                                     formatter_class = argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-i', '--interval', type=float, default=0.016,
+                        help = 'time interval/period to read the force sensor, also update GUI')
+    args = parser.parse_args()
+
+    ral = crtk.ral('force_vis')
+    sensor = ForceSensor(ral, 'sensor', 4*args.interval)
+    ral.check_connections()
+
+    ral.spin()
+    # initialize GUI
     app = QtWidgets.QApplication(sys.argv)
-    window = ForceVisualization()
+    window = ForceVisualization(sensor, args.interval)
     window.show()
-    sys.exit(app.exec_())
+    ret = app.exec_()
+
+    try:
+        ral.shutdown()
+    except Exception:
+        print("ral.shutdown() failed!")
+        pass
+    sys.exit(ret)

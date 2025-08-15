@@ -4,6 +4,9 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtGui
 import random
 import math
+import time
+import csv
+import datetime
 import numpy as np
 
 class ProgressBarGraph(QtWidgets.QMainWindow):
@@ -96,18 +99,31 @@ class TwoIndependentPlotWidgets(QtWidgets.QMainWindow):
         # set background figure
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
-        layout = QtWidgets.QVBoxLayout()
-        central_widget.setLayout(layout)
+        main_layout = QtWidgets.QVBoxLayout()
+        central_widget.setLayout(main_layout)
+
+        # ----- Controls (buttons) -----
+        controls_layout = QtWidgets.QHBoxLayout()
+        self.btn_start = QtWidgets.QPushButton("Start Recording")
+        self.btn_stop = QtWidgets.QPushButton("Stop and Save")
+        self.btn_stop.setEnabled(False)
+        controls_layout.addWidget(self.btn_start)
+        controls_layout.addWidget(self.btn_stop)
+        controls_layout.addStretch()
+        main_layout.addLayout(controls_layout)
+
+        # connect buttons
+        self.btn_start.clicked.connect(self.start_recording)
+        self.btn_stop.clicked.connect(self.stop_recording)
 
         # PlotWidget of force magnitude
-        plot1_range = 100
-
+        self.plot1_range = 100
         self.plot1 = pg.PlotWidget()
         self.plot1.setBackground('w')
-        self.plot1.setXRange(0, plot1_range)
+        self.plot1.setXRange(0, self.plot1_range)
         self.plot1.setYRange(-0.5, 0.5)
-        self.plot1.setTitle("Force Magnitude", color="k", size="16pt")
-        layout.addWidget(self.plot1)
+        self.plot1.getPlotItem().setTitle("Force Magnitude", color="k", size="16pt")
+        main_layout.addWidget(self.plot1)
 
         self.bar = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[0], brush='skyblue')
         self.plot1.addItem(self.bar)
@@ -127,12 +143,12 @@ class TwoIndependentPlotWidgets(QtWidgets.QMainWindow):
         self.plot1.addItem(red_zone)
 
         # set border
-        bar_border = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[plot1_range], brush=None, pen=pg.mkPen(color='black', width=2))
+        bar_border = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[self.plot1_range], brush=None, pen=pg.mkPen(color='black', width=2))
         self.plot1.addItem(bar_border)
 
         ###################################################
 
-        # PlotWidget of force angle
+        # PlotWidget of force vector
         self.plot2 = pg.PlotWidget()
         self.plot2.setBackground('w')
         # self.plot2.showGrid(x=True, y=True, alpha=0.3)
@@ -142,46 +158,89 @@ class TwoIndependentPlotWidgets(QtWidgets.QMainWindow):
         self.plot2.setXRange(-20, 20)
         self.plot2.setYRange(-20, 20)
         self.plot2.setAspectLocked(True)
-        self.plot2.setTitle("Force Angle", color="k", size="16pt")
-        layout.addWidget(self.plot2)
+        self.plot2.getPlotItem().setTitle("Force Angle", color="k", size="16pt")
+        main_layout.addWidget(self.plot2)
 
         # set red zone
-        r = 12
+        self.radius = 12
         theta = np.linspace(0, 2*np.pi, 100)
-        x = r * np.cos(theta)
-        y = r * np.sin(theta)
-        self.red_zone_cir = self.plot2.plot(x, y, pen=None, brush=pg.mkBrush(255,0,0,50), fillLevel=0)
+        cx = self.radius * np.cos(theta)
+        cy = self.radius * np.sin(theta)
+        self.plot2.plot(cx, cy, pen=None, brush=pg.mkBrush(255,0,0,50), fillLevel=0)
 
         # origin marker
         self.origin_marker = self.plot2.plot([0], [0], pen=None, symbol='o', symbolBrush='red', symbolSize=12)
+        self.vector_line = self.plot2.plot([0, 0], [0, 0], pen=pg.mkPen('skyblue', width=4))
 
-        # data initialization
-        self.bar_value = 0
+        # ----- Recording state -----
+        self.is_recording = False
+        self.records = []  # list of dicts or tuples
 
         # update
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_bars)
-        self.timer.start(100)
+        self.timer.start(33)
+
+    def start_recording(self):
+        # clear old records and enable stop
+        self.records = []
+        self.is_recording = True
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self._record_start_time = time.time()
+        print("Recording started.")
+
+    def stop_recording(self):
+        # clear old records and enable stop
+        self.is_recording = False
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        
+        # save to CSV for later analysis (time)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"../../../Dataset/force_record/force_record_{timestamp}.csv"
+        try:
+            with open(fname, "w", newline='') as f:
+                writer = csv.writer(f)
+                # header
+                writer.writerow(["time_s", "bar_value", "fx", "fy", "fz", "vector_r", "vector_theta_deg"])
+                for rec in self.records:
+                    writer.writerow([
+                        f"{rec['t']:.6f}", rec['bar'], rec['fx'], rec['fy'], rec['fz'],
+                        rec['r'], rec['theta_deg']
+                    ])
+            print(f"Saved {len(self.records)} records to {fname}")
+        except Exception as e:
+            print("Failed to save records:", e)
 
     def update_bars(self):
         # simulating bars update
-        self.bar_value = random.randint(0, 100)
-        self.bar.setOpts(width=[self.bar_value])
+        bar_value = random.randint(0, self.plot1_range)
+        self.bar.setOpts(width=[bar_value])
 
-        # simulating force angle
-        # delete previous vector line (keep red circle and origin)
-        for item in self.plot2.listDataItems():
-            if item not in [self.red_zone_cir, self.origin_marker]:
-                self.plot2.removeItem(item)
-
+        # simulating force vector
         # generate random vector
-        r = random.uniform(0, 15)
+        r = random.uniform(0, self.radius+5)
         theta_deg = random.uniform(0, 360)
-        x = r * math.cos(math.radians(theta_deg))
-        y = r * math.sin(math.radians(theta_deg))
+        fx = r * math.cos(math.radians(theta_deg))
+        fy = r * math.sin(math.radians(theta_deg))
+        fz = 0.0
 
         # plot vector
-        self.plot2.plot([0, x], [0, y], pen=pg.mkPen('skyblue', width=6))
+        self.vector_line.setData([0, fx], [0, fy])
+
+        # if recording, append a record
+        if self.is_recording:
+            rec_time = time.time() - getattr(self, "_record_start_time", time.time())
+            self.records.append({
+                "t": rec_time,
+                "bar": bar_value,
+                "fx": fx,
+                "fy": fy,
+                "fz": fz,
+                "r": r,
+                "theta_deg": theta_deg
+            })
 
 
 class ForceVectorWidget(QtWidgets.QMainWindow):
