@@ -6,7 +6,9 @@ class ModelMerger:
     def __init__(self,model_paths, output_path):
         self.model_paths = model_paths
         self.output_path = output_path
-        self.model_names = ['master1_first','master1_last','master2_first','master2_last','puppet_first','puppet_last']
+        self.model_names = ['master1_l_first','master1_l_last','master1_r_first','master1_r_last'
+                            ,'master2_l_first','master2_l_last','master2_r_first','master2_r_last',
+                            'puppet1_first','puppet1_last','puppet2_first','puppet2_last']
 
     def merge_models(self):
         """
@@ -23,7 +25,7 @@ class ModelMerger:
         models = []
         for i,model_path in enumerate(self.model_paths):
             model = onnx.load(model_path)
-            model = compose.add_prefix(model, self.model_name[i])
+            model = compose.add_prefix(model, self.model_names[i])
             models.append(model)
         
         # merge the models
