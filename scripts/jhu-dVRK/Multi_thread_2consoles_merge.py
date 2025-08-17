@@ -29,6 +29,7 @@ import onnxruntime
 from queue import Queue, Empty
 import time
 import threading
+import os
 
 from model_2console_merge import ModelMerger
 
@@ -156,7 +157,6 @@ class teleoperation:
         self.velocity_gain = 1.1
 
 
-        # for model
 
         self.master1_l_prev = self.master1_l.body_measured_cf()
         self.master2_l_prev = self.master2_l.body_measured_cf()
@@ -1359,7 +1359,7 @@ class model(threading.Thread):
 
         # MTML2
         master2_l_first_input = (master2_l_first_input - self.master2_l.firstmodel.input_mean) / self.master2_l.firstmodel.input_std
-        master2_last_input = (master2_last_input - self.master2_l.lastmodel.input_mean) / self.master2_l.lastmodel.input_std
+        master2_l_last_input = (master2_l_last_input - self.master2_l.lastmodel.input_mean) / self.master2_l.lastmodel.input_std
 
         # MTMR2
         master2_r_first_input = (master2_r_first_input - self.master2_r.firstmodel.input_mean) / self.master2_r.firstmodel.input_std
@@ -1519,7 +1519,7 @@ class model(threading.Thread):
         master2_l_torque_Joint4_6 = master2_l_torque_Joint4_6 * self.master2_l.lastmodel.target_std + self.master2_l.lastmodel.target_mean
 
         # MTMR2
-        master2_r_torque_Joint1_3 = master2_r_torque_Joint1_3 * self.master2_r.firstmodel.target_std + self.master2_r.firstmodel.targetmean
+        master2_r_torque_Joint1_3 = master2_r_torque_Joint1_3 * self.master2_r.firstmodel.target_std + self.master2_r.firstmodel.target_mean
         master2_r_torque_Joint4_6 = master2_r_torque_Joint4_6 * self.master2_r.lastmodel.target_std + self.master2_r.lastmodel.target_mean
 
         # PSM1
