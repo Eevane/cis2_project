@@ -7,6 +7,8 @@ import math
 import random
 import numpy as np
 
+import csv
+import datetime
 import argparse
 import crtk
 import geometry_msgs.msg
@@ -17,31 +19,44 @@ import time
 class ForceVisualization(QtWidgets.QMainWindow):
     def __init__(self, sensor, update_interval):
         super().__init__()
-        self.setWindowTitle("Two Horizontal Bars")
-        self.resize(3000, 3000)
+        self.setWindowTitle("Force Visualization GUI")
+        self.resize(2000, 3000)
 
         # set background figure
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
-        layout = QtWidgets.QVBoxLayout()
-        central_widget.setLayout(layout)
+        main_layout = QtWidgets.QVBoxLayout()
+        central_widget.setLayout(main_layout)
+        
+        # ----- Controls (buttons) -----
+        controls_layout = QtWidgets.QHBoxLayout()
+        self.btn_start = QtWidgets.QPushButton("Start Recording")
+        self.btn_stop = QtWidgets.QPushButton("Stop and Save")
+        self.btn_stop.setEnabled(False)
+        controls_layout.addWidget(self.btn_start)
+        controls_layout.addWidget(self.btn_stop)
+        controls_layout.addStretch()
+        main_layout.addLayout(controls_layout)
+
+        # connect buttons
+        self.btn_start.clicked.connect(self.start_recording)
+        self.btn_stop.clicked.connect(self.stop_recording)
 
         # PlotWidget of force magnitude
-        self.plot1_range = 100
-
+        self.plot1_range = 8
         self.plot1 = pg.PlotWidget()
         self.plot1.setBackground('w')
         self.plot1.setXRange(0, self.plot1_range)
         self.plot1.setYRange(-0.5, 0.5)
         self.plot1.getPlotItem().setTitle("Force Magnitude", color="k", size="16pt")
-        layout.addWidget(self.plot1)
+        main_layout.addWidget(self.plot1)
 
         self.bar = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[0], brush='skyblue')
         self.plot1.addItem(self.bar)
 
         # set red zone
-        threshold_start = 30
-        threshold_end = 50
+        threshold_start = 2
+        threshold_end = 4
         bar_y = 0
         bar_height = 0.4
         red_zone = pg.BarGraphItem(
@@ -57,9 +72,6 @@ class ForceVisualization(QtWidgets.QMainWindow):
         bar_border = pg.BarGraphItem(x0=[0], y=[0], height=0.4, width=[self.plot1_range], brush=None, pen=pg.mkPen(color='black', width=2))
         self.plot1.addItem(bar_border)
 
-        # data initialization
-        self.bar_value = 0
-
         ###################################################
 
         # PlotWidget of force angle
@@ -72,14 +84,14 @@ class ForceVisualization(QtWidgets.QMainWindow):
         self.plot2.setXRange(-20, 20)
         self.plot2.setYRange(-20, 20)
         self.plot2.setAspectLocked(True)
-        self.plot2.getPlotItem().setTitle("Force Vector (XY)", color="k", size="14pt")
-        layout.addWidget(self.plot2)
+        self.plot2.getPlotItem().setTitle("Force Vector (XY)", color="k", size="16pt")
+        main_layout.addWidget(self.plot2)
 
         # set red zone
-        r = 12
+        self.radius = 6
         theta = np.linspace(0, 2*np.pi, 100)
-        cx = r * np.cos(theta)
-        cy = r * np.sin(theta)
+        cx = self.radius * np.cos(theta)
+        cy = self.radius * np.sin(theta)
         self.plot2.plot(cx, cy, pen=None, brush=pg.mkBrush(255,0,0,50), fillLevel=0)
 
         # origin marker
@@ -92,10 +104,46 @@ class ForceVisualization(QtWidgets.QMainWindow):
         self.sensor = sensor
         self.update_interval = int(update_interval * 1000)
 
-        # set timer to update
+        # ----- Recording state -----
+        self.is_recording = False
+        self.records = []  # list of dicts or tuples
+
+        # update
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plots)
-        self.timer.start(self.update_interval)
+        self.timer.start(16)
+
+    def start_recording(self):
+        # clear old records and enable stop
+        self.records = []
+        self.is_recording = True
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self._record_start_time = time.time()
+        print("Recording started.")
+
+    def stop_recording(self):
+        # clear old records and enable stop
+        self.is_recording = False
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        
+        # save to CSV for later analysis (time)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"njiang19/dvrk_teleop_data/Aug_17/force_record/force_record_{timestamp}.csv"
+        try:
+            with open(fname, "w", newline='') as f:
+                writer = csv.writer(f)
+                # header
+                writer.writerow(["time_s", "bar_value", "fx", "fy", "fz", "vector_r", "vector_theta_deg"])
+                for rec in self.records:
+                    writer.writerow([
+                        f"{rec['t']:.6f}", rec['bar'], rec['fx'], rec['fy'], rec['fz'],
+                        rec['r'], rec['theta_deg']
+                    ])
+            print(f"Saved {len(self.records)} records to {fname}")
+        except Exception as e:
+            print("Failed to save records:", e)
 
     def update_plots_simulation(self):
         # force magnitude update
@@ -125,8 +173,8 @@ class ForceVisualization(QtWidgets.QMainWindow):
                 return
             fx, fy, fz = wrench[0], wrench[1], wrench[2]
         except Exception as e:
-            # don't let exceptions kill the timer
             print("Sensor read error:", e)
+            sys.exit(ret)
             return
         
         # force magnitude update
@@ -135,6 +183,19 @@ class ForceVisualization(QtWidgets.QMainWindow):
 
         # force angle update
         self.vector_line.setData([0, fx], [0, fy])
+
+        # if recording, append a record
+        if self.is_recording:
+            rec_time = time.time() - getattr(self, "_record_start_time", time.time())
+            self.records.append({
+                "t": rec_time,
+                "bar": bar_value,
+                "fx": fx,
+                "fy": fy,
+                "fz": fz,
+                "r": r,
+                "theta_deg": theta_deg
+            })
     
 class ForceSensor:
     def __init__(self, ral, arm_name, timeout):
