@@ -25,7 +25,28 @@ import sys
 import time
 from scipy.spatial.transform import Rotation as R
 import cisstVectorPython as cisstVector
+import onnxruntime
+from queue import Queue, Empty
+import time
+import threading
+import os
 
+from model_2console_merge import ModelMerger
+
+
+master1_l_external_f_queue = Queue(maxsize=1)
+master2_l_external_f_queue = Queue(maxsize=1)
+puppet1_external_f_queue = Queue(maxsize=1)
+master1_l_internal_f_queue = Queue(maxsize=1)
+master2_l_internal_f_queue = Queue(maxsize=1)
+puppet1_internal_f_queue = Queue(maxsize=1)
+
+master1_r_external_f_queue = Queue(maxsize=1)
+master2_r_external_f_queue = Queue(maxsize=1)
+puppet2_external_f_queue = Queue(maxsize=1)
+master1_r_internal_f_queue = Queue(maxsize=1)
+master2_r_internal_f_queue = Queue(maxsize=1)
+puppet2_internal_f_queue = Queue(maxsize=1)
 
 class teleoperation:
     class State(Enum):
@@ -100,11 +121,51 @@ class teleoperation:
         self.puppet_l_force = []
         self.puppet_r_force = []
 
+        # network parameters setting ######################################################
+        self.seq_len = self.master1_l.firstmodel.seq_len
+        self.queue_MTML1_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTML1_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR1_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR1_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM1_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM1_last3 = numpy.zeros((1, self.seq_len, 6))
+
+        self.queue_MTML2_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTML2_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR2_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR2_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM2_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM2_last3 = numpy.zeros((1, self.seq_len, 6))
+
+        # self.internal_torque_record_MTML= []
+        # self.total_torque_record_MTML = []
+        # self.internal_torque_record_MTMR = []
+        # self.total_torque_record_MTMR = []
+        # self.internal_torque_record_PSM = []
+        # self.total_torque_record_PSM = []
+
+        # self.total_force_MTML = []
+        # self.internal_force_MTML = []
+        # self.total_force_MTMR = []
+        # self.internal_force_MTMR = []
+        # self.total_force_PSM = []
+        # self.internal_force_PSM = []
+        #####################################################################################
+
         # control law gain
         self.force_gain = 0.35
         self.velocity_gain = 1.1
 
-    def set_velocity_goal(self, v, base=1.10, max_gain=1.27, threshold=0.25):
+
+
+        self.master1_l_prev = self.master1_l.body_measured_cf()
+        self.master2_l_prev = self.master2_l.body_measured_cf()
+        self.master1_r_prev = self.master1_r.body_measured_cf()
+        self.master2_r_prev = self.master2_r.body_measured_cf()
+        self.puppet_l_prev = self.puppet_l.body_measured_cf()
+        self.puppet_r_prev = self.puppet_r.body_measured_cf()
+
+    def set_velocity_goal(self, v, base=1.12, max_gain=1.22, threshold=0.2):
         norm = numpy.linalg.norm(v)
         # print(f"v: {norm}")
         if norm < threshold:
@@ -507,6 +568,7 @@ class teleoperation:
         elif self.on_clutch():
             self.enter_clutched()
 
+    
     def run_following(self):
         #-----------------------------------------------------------------------------------------------------
         """ Left arms movement """       
@@ -514,25 +576,84 @@ class teleoperation:
         Forward Process
         """
         # Force channel
-        # master1
+        """ recorde cartesian force for plot """
         master1_l_measured_cf = self.master1_l.body_measured_cf()   # (6,) numpy array
-        master1_l_measured_cf[0:3] *= -1.0
-        master1_l_measured_cf[3:6] *= 0   # turn off torque
-
-        # master2
         master2_l_measured_cf = self.master2_l.body_measured_cf()   # (6,) numpy array
-        master2_l_measured_cf[0:3] *= -1.0
-        master2_l_measured_cf[3:6] *= 0   # turn off torque
+        puppet_l_measured_cf = self.puppet_l.body_measured_cf()
+        """  """
+
+
+        # master1
+        try:
+            master1_l_external_f = master1_l_external_f_queue.get_nowait()
+            master1_l_external_f = numpy.asarray(master1_l_external_f, dtype=float).reshape(-1)
+            self.master1_l_prev = master1_l_external_f
+            #print(f"internal{self.master1_internal_force}")
+        except Empty:
+            master1_l_external_f = self.master1_l_prev
+
+        
+        # master2
+        try:
+            master2_l_external_f = master2_l_external_f_queue.get_nowait()
+            master2_l_external_f = numpy.asarray(master2_l_external_f, dtype=float).reshape(-1)
+            self.master2_l_prev = master2_l_external_f
+        except Empty:
+            master2_l_external_f = self.master2_l_prev
 
         # puppet
-        puppet_l_measured_cf = self.puppet_l.body_measured_cf()
-        puppet_l_measured_cf[0:3] *= -1.0
-        puppet_l_measured_cf[3:6] *= 0
+        try:
+            puppet_l_external_f = puppet1_external_f_queue.get_nowait()
+            puppet_l_external_f = numpy.asarray(puppet_l_external_f, dtype=float).reshape(-1)
+            self.puppet_l_prev = puppet_l_external_f
+        except Empty:
+            puppet_l_external_f = self.puppet_l_prev
+
+
+
+        # master1
+        try:
+            master1_r_external_f = master1_r_external_f_queue.get_nowait()
+            master1_r_external_f = numpy.asarray(master1_r_external_f, dtype=float).reshape(-1)
+            self.master1_r_prev = master1_r_external_f
+            #print(f"internal{self.master1_internal_force}")
+        except Empty:
+            master1_r_external_f = self.master1_r_prev
+        
+        # master2
+        try:
+            master2_r_external_f = master2_r_external_f_queue.get_nowait()
+            master2_r_external_f = numpy.asarray(master2_r_external_f, dtype=float).reshape(-1)
+            self.master2_r_prev = master2_r_external_f
+        except Empty:
+            master2_r_external_f = self.master2_r_prev
+        # puppet
+        try:
+            puppet_r_external_f = puppet2_external_f_queue.get_nowait()
+            puppet_r_external_f = numpy.asarray(puppet_r_external_f, dtype=float).reshape(-1)
+            self.puppet_r_prev = puppet_r_external_f
+        except Empty:
+            puppet_r_external_f = self.puppet_r_prev
+
+        
+
+
+        # master1
+        master1_l_external_f[0:3] *= -1.0
+        master1_l_external_f[3:6] *= 0   # turn off torque
+
+        # master2
+        master2_l_external_f[0:3] *= -1.0
+        master2_l_external_f[3:6] *= 0   # turn off torque
+
+        # puppet
+        puppet_l_external_f[0:3] *= -1.0
+        puppet_l_external_f[3:6] *= 0
 
         # force input
         gamma = 0.714
-        force_l_goal = self.force_gain * (self.alpha * master1_l_measured_cf + (1 - self.alpha) * master2_l_measured_cf + gamma * puppet_l_measured_cf)
-
+        force_l_goal = self.force_gain * (self.alpha * master1_l_external_f + (1 - self.alpha) * master2_l_external_f + gamma * puppet_l_external_f)
+        force_l_goal = force_l_goal.reshape(-1)
 
         # Position channel
         master1_l_measured_trans, master1_l_measured_rot = self.master1_l.measured_cp()
@@ -574,11 +695,11 @@ class teleoperation:
         # Velocity channel
         master1_l_measured_cv = self.master1_l.measured_cv()   # (6,) numpy array
         master1_l_measured_cv[0:3] *= self.velocity_scale      # scale the linear velocity
-        # master1_l_measured_cv[3:6] *= 0.8      # scale down the angular velocity by 0.2
+        master1_l_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
 
         master2_l_measured_cv = self.master2_l.measured_cv()   # master2
         master2_l_measured_cv[0:3] *= self.velocity_scale     
-        # master2_l_measured_cv[3:6] *= 0.8     
+        master2_l_measured_cv[3:6] *= 0.2     
 
         # average velocity
         # puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
@@ -631,7 +752,7 @@ class teleoperation:
         # Velocity channel
         puppet_l_measured_cv = self.puppet_l.measured_cv()   # (6,) numpy array
         puppet_l_measured_cv[0:3] /= self.velocity_scale      # scale the linear velocity
-        # puppet_l_measured_cv[3:6] *= 0.8      # scale down the angular velocity by 0.2
+        puppet_l_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
 
         # set velocity goal
         # master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
@@ -650,24 +771,27 @@ class teleoperation:
         Forward Process
         """
         # Force channel
-        # master1
+        """ recorde cartesian force for plot """
         master1_r_measured_cf = self.master1_r.body_measured_cf()   # (6,) numpy array
-        master1_r_measured_cf[0:3] *= -1.0
-        master1_r_measured_cf[3:6] *= 0   # turn off torque
+        master2_r_measured_cf = self.master2_r.body_measured_cf()   # (6,) numpy array
+        puppet_r_measured_cf = self.puppet_r.body_measured_cf()
+        """  """
+        # master1
+        master1_r_external_f[0:3] *= -1.0
+        master1_r_external_f[3:6] *= 0   # turn off torque
 
         # master2
-        master2_r_measured_cf = self.master2_r.body_measured_cf()   # (6,) numpy array
-        master2_r_measured_cf[0:3] *= -1.0
-        master2_r_measured_cf[3:6] *= 0   # turn off torque
+        master2_r_external_f[0:3] *= -1.0
+        master2_r_external_f[3:6] *= 0   # turn off torque
 
         # puppet
-        puppet_r_measured_cf = self.puppet_r.body_measured_cf()
-        puppet_r_measured_cf[0:3] *= -1.0
-        puppet_r_measured_cf[3:6] *= 0
+        puppet_r_external_f[0:3] *= -1.0
+        puppet_r_external_f[3:6] *= 0
 
         # force input
         gamma = 0.714
-        force_r_goal = self.force_gain * (self.alpha * master1_r_measured_cf + (1 - self.alpha) * master2_r_measured_cf + gamma * puppet_r_measured_cf)
+        force_r_goal = self.force_gain * (self.alpha * master1_r_external_f + (1 - self.alpha) * master2_r_external_f + gamma * puppet_r_external_f)
+        force_r_goal = force_r_goal.reshape(-1)
 
 
         # Position channel
@@ -710,11 +834,11 @@ class teleoperation:
         # Velocity channel
         master1_r_measured_cv = self.master1_r.measured_cv()   # (6,) numpy array
         master1_r_measured_cv[0:3] *= self.velocity_scale      # scale the linear velocity
-        # master1_r_measured_cv[3:6] *= 0.8      # scale down the angular velocity by 0.2
+        master1_r_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
 
         master2_r_measured_cv = self.master2_r.measured_cv()   # master2
         master2_r_measured_cv[0:3] *= self.velocity_scale     
-        # master2_r_measured_cv[3:6] *= 0.8     
+        master2_r_measured_cv[3:6] *= 0.2     
 
         # average velocity
         # puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
@@ -767,7 +891,7 @@ class teleoperation:
         # Velocity channel
         puppet_r_measured_cv = self.puppet_r.measured_cv()   # (6,) numpy array
         puppet_r_measured_cv[0:3] /= self.velocity_scale      # scale the linear velocity
-        # puppet_r_measured_cv[3:6] *= 0.8      # scale down the angular velocity by 0.2
+        puppet_r_measured_cv[3:6] *= 0.2      # scale down the angular velocity by 0.2
 
         # set velocity goal
         # master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
@@ -886,6 +1010,7 @@ class teleoperation:
                 
         except KeyboardInterrupt:
             print("Program stopped!")
+            model_thread.stop()
             system.power_off()
 
         # save data
@@ -903,9 +1028,28 @@ class teleoperation:
         print(f"data.txt saved!")
 
 class ARM:
-    def __init__(self, arm, name):
+    class LoadModel:
+        def __init__(self, onnx_path, param_path):
+            # self.ort_session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+            self.onnx_path = onnx_path
+            self.param_path = param_path
+            norm_data = numpy.load(param_path)
+            self.input_mean = norm_data['input_mean']
+            self.input_std = norm_data['input_std']
+            self.target_mean = norm_data['target_mean']
+            self.target_std = norm_data['target_std']
+            self.seq_len = norm_data['seq_len']
+
+    def __init__(self, arm, name, firstjoints_onnxpath=None, firstjoints_parampath=None, lastjoints_onnxpath=None, lastjoints_parampath=None):
         self.arm = arm
         self.name = name
+
+        # load onnx model
+        if firstjoints_onnxpath is not None and firstjoints_parampath is not None:
+            self.firstmodel = self.LoadModel(firstjoints_onnxpath, firstjoints_parampath)
+
+        if lastjoints_onnxpath is not None and lastjoints_parampath is not None:
+            self.lastmodel = self.LoadModel(lastjoints_onnxpath, lastjoints_parampath)
     
     def measured_js(self):
         measured_js = self.arm.measured_js()
@@ -986,12 +1130,466 @@ class ARM:
         _, lock_rot = self.measured_cp()
         self.arm.lock_orientation(lock_rot)
 
+    def body_jacobian(self):
+        j = self.arm.body.jacobian()
+        return j.copy()
+    
     def move_jp(self, goal):
         arg = self.arm.move_jp.GetArgumentPrototype()
         arg.SetGoal(goal)
         self.arm.move_jp(arg)
         
 
+
+
+class model(threading.Thread):
+    def __init__(self, master1_l, master2_l, puppet1, master1_r, master2_r, puppet2, ort_session,freq):
+        super().__init__()
+        self.interval = 1/freq
+        self.running = True
+        self.master1_l = master1_l
+        self.master2_l = master2_l
+        self.puppet1 = puppet1
+        self.master1_r = master1_r
+        self.master2_r = master2_r
+        self.puppet2 = puppet2
+        self.ort_session = ort_session
+        self.count = 0
+
+        # # network parameters setting ######################################################
+        # self.internal_torque_record_MTML= []
+        # self.total_torque_record_MTML = []
+        # self.internal_torque_record_MTMR = []
+        # self.total_torque_record_MTMR = []
+        # self.internal_torque_record_PSM = []
+        # self.total_torque_record_PSM = []
+
+        # self.internal_force_MTML = []
+        # self.internal_force_MTMR = []
+        # self.internal_force_PSM = []
+
+        # network parameters setting ######################################################
+        self.seq_len = self.master1_l.firstmodel.seq_len
+        self.queue_MTML1_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTML1_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR1_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR1_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM1_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM1_last3 = numpy.zeros((1, self.seq_len, 6))
+
+        self.queue_MTML2_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTML2_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR2_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_MTMR2_last3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM2_first3 = numpy.zeros((1, self.seq_len, 6))
+        self.queue_PSM2_last3 = numpy.zeros((1, self.seq_len, 6))
+        
+
+    def run(self):
+        time.sleep(15)
+        while self.running:
+            # print(f"model is running at {1/self.interval}hz")
+            start_time = time.time()
+
+            external_force_prediction = self.externalforce_prediction()
+            master1_l_external_f = external_force_prediction[0]
+            master1_r_external_f = external_force_prediction[1]
+            master2_l_external_f = external_force_prediction[2]
+            master2_r_external_f = external_force_prediction[3]
+            puppet1_external_f = external_force_prediction[4]
+            puppet2_external_f = external_force_prediction[5]
+
+            # # master1
+            # master1_l_external_f[0:3] *= -1.0
+            # master1_l_external_f[3:6] *= 0   # turn off torque
+
+            # # master2
+            # master2_l_external_f[0:3] *= -1.0
+            # master2_l_external_f[3:6] *= 0  # turn off torque
+
+            # # puppet
+            # puppet1_external_f[0:3] *= -1.0
+            # puppet1_external_f[3:6] *= 0
+
+            # # master1
+            # master1_r_external_f[0:3] *= -1.0
+            # master1_r_external_f[3:6] *= 0   # turn off torque
+
+            # # master2
+            # master2_r_external_f[0:3] *= -1.0
+            # master2_r_external_f[3:6] *= 0  # turn off torque
+
+            # # puppet
+            # puppet2_external_f[0:3] *= -1.0
+            # puppet2_external_f[3:6] *= 0
+
+             # master1
+            if master1_l_external_f_queue.full():
+                _ = master1_l_external_f_queue.get_nowait()
+            master1_l_external_f_queue.put(master1_l_external_f)
+            
+             # master2
+            if master2_l_external_f_queue.full():
+                _ = master2_l_external_f_queue.get_nowait()
+            master2_l_external_f_queue.put(master2_l_external_f)
+            
+             # puppet
+            if puppet1_external_f_queue.full():
+                _ = puppet1_external_f_queue.get_nowait()
+            puppet1_external_f_queue.put(puppet1_external_f)
+
+             # master1
+            if master1_r_external_f_queue.full():
+                _ = master1_r_external_f_queue.get_nowait()
+            master1_r_external_f_queue.put(master1_r_external_f)
+            
+             # master2
+            if master2_r_external_f_queue.full():
+                _ = master2_r_external_f_queue.get_nowait()
+            master2_r_external_f_queue.put(master2_r_external_f)
+            
+             # puppet
+            if puppet2_external_f_queue.full():
+                _ = puppet2_external_f_queue.get_nowait()
+            puppet2_external_f_queue.put(puppet2_external_f)
+
+            
+
+            # # master1
+            # if master1_internal_f_queue.full():
+            #     _ = master1_internal_f_queue.get_nowait()
+            # master1_internal_f_queue.put(master1_internal_f)
+            
+            #  # master2
+            # if master2_internal_f_queue.full():
+            #     _ = master2_internal_f_queue.get_nowait()
+            # master2_internal_f_queue.put(master2_internal_f)
+            
+            #  # puppet
+            # if puppet_internal_f_queue.full():
+            #     _ = puppet_internal_f_queue.get_nowait()
+            # puppet_internal_f_queue.put(puppet_internal_f)
+
+
+
+            elapsed = time.time() - start_time
+            if self.count == 200:
+                print(f"Model runs {1/elapsed} times per sec.")
+                self.count = 0
+            self.count += 1
+            time.sleep(max(0, self.interval - elapsed))
+    
+    def externalforce_prediction(self):
+        '''
+        Predict external force using the onnx model at once.
+
+        Returns: 6 numpy array of external force, in the order of [m1l,m1r,m2l,m2r,p1,p2]
+        '''
+        # measured_js returns 6 joints for PSM, 7 joints for MTM
+        # MTML1
+        master1_l_measured_q, master1_l_measured_dq, master1_l_measured_torque = self.master1_l.measured_js()
+        master1_l_q = master1_l_measured_q[:6]
+        master1_l_dq = master1_l_measured_dq[:6]
+        master1_l_total_torque = master1_l_measured_torque[:6]
+
+        # MTMR1
+        master1_r_measured_q, master1_r_measured_dq, master1_r_measured_torque = self.master1_r.measured_js()
+        master1_r_q = master1_r_measured_q[:6]
+        master1_r_dq = master1_r_measured_dq[:6]
+        master1_r_total_torque = master1_r_measured_torque[:6]
+
+        # MTML2
+        master2_l_measured_q, master2_l_measured_dq, master2_l_measured_torque = self.master2_l.measured_js()
+        master2_l_q = master2_l_measured_q[:6]
+        master2_l_dq = master2_l_measured_dq[:6]
+        master2_l_total_torque = master2_l_measured_torque[:6]
+
+        # MTMR2
+        master2_r_measured_q, master2_r_measured_dq, master2_r_measured_torque = self.master2_r.measured_js()
+        master2_r_q = master2_r_measured_q[:6]
+        master2_r_dq = master2_r_measured_dq[:6]
+        master2_r_total_torque = master2_r_measured_torque[:6]
+
+        # PSM1
+        puppet1_measured_q, puppet1_measured_dq, puppet1_measured_torque = self.puppet1.measured_js()
+        puppet1_q = puppet1_measured_q[:6]
+        puppet1_dq = puppet1_measured_dq[:6]
+        puppet1_total_torque = puppet1_measured_torque[:6]
+        # print(f"{component.name} measured_jf is: {total_torque}")
+
+        # PSM2
+        puppet2_measured_q, puppet2_measured_dq, puppet2_measured_torque = self.puppet2.measured_js()
+        puppet2_q = puppet2_measured_q[:6]
+        puppet2_dq = puppet2_measured_dq[:6]
+        puppet2_total_torque = puppet2_measured_torque[:6]
+
+        # Concat
+        # MTML1
+        master1_l_first_input = numpy.concatenate((master1_l_q[0:3], master1_l_dq[0:3]))
+        master1_l_last_input = numpy.concatenate((master1_l_q[3:6], master1_l_dq[3:6]))
+
+        # MTMR1
+        master1_r_first_input = numpy.concatenate((master1_r_q[0:3], master1_r_dq[0:3]))
+        master1_r_last_input = numpy.concatenate((master1_r_q[3:6], master1_r_dq[3:6]))
+
+        # MTML2
+        master2_l_first_input = numpy.concatenate((master2_l_q[0:3], master2_l_dq[0:3]))
+        master2_l_last_input = numpy.concatenate((master2_l_q[3:6], master2_l_dq[3:6]))
+
+        # MTMR2
+        master2_r_first_input = numpy.concatenate((master2_r_q[0:3], master2_r_dq[0:3]))
+        master2_r_last_input = numpy.concatenate((master2_r_q[3:6], master2_r_dq[3:6]))
+
+        # PSM1
+        puppet1_first_input = numpy.concatenate((puppet1_q[0:3], puppet1_dq[0:3]))
+        puppet1_last_input = numpy.concatenate((puppet1_q[3:6], puppet1_dq[3:6]))
+
+        # PSM2
+        puppet2_first_input = numpy.concatenate((puppet2_q[0:3], puppet2_dq[0:3]))
+        puppet2_last_input = numpy.concatenate((puppet2_q[3:6], puppet2_dq[3:6]))
+
+        # normalize input
+        # MTML1
+        master1_l_first_input = (master1_l_first_input - self.master1_l.firstmodel.input_mean) / self.master1_l.firstmodel.input_std
+        master1_l_last_input = (master1_l_last_input - self.master1_l.lastmodel.input_mean) / self.master1_l.lastmodel.input_std
+
+        # MTMR1
+        master1_r_first_input = (master1_r_first_input - self.master1_r.firstmodel.input_mean) / self.master1_r.firstmodel.input_std
+        master1_r_last_input = (master1_r_last_input - self.master1_r.lastmodel.input_mean) / self.master1_r.lastmodel.input_std
+
+        # MTML2
+        master2_l_first_input = (master2_l_first_input - self.master2_l.firstmodel.input_mean) / self.master2_l.firstmodel.input_std
+        master2_l_last_input = (master2_l_last_input - self.master2_l.lastmodel.input_mean) / self.master2_l.lastmodel.input_std
+
+        # MTMR2
+        master2_r_first_input = (master2_r_first_input - self.master2_r.firstmodel.input_mean) / self.master2_r.firstmodel.input_std
+        master2_r_last_input = (master2_r_last_input - self.master2_r.lastmodel.input_mean) / self.master2_r.lastmodel.input_std
+
+        # PSM1
+        puppet1_first_input = (puppet1_first_input - self.puppet1.firstmodel.input_mean) / self.puppet1.firstmodel.input_std
+        puppet1_last_input = (puppet1_last_input - self.puppet1.lastmodel.input_mean) / self.puppet1.lastmodel.input_std
+
+        # PSM2
+        puppet2_first_input = (puppet2_first_input - self.puppet2.firstmodel.input_mean) / self.puppet2.firstmodel.input_std
+        puppet2_last_input = (puppet2_last_input - self.puppet2.lastmodel.input_mean) / self.puppet2.lastmodel.input_std
+
+        # reshape
+        # MTML1
+        master1_l_first_input = numpy.expand_dims(master1_l_first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+        master1_l_last_input = numpy.expand_dims(master1_l_last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+
+        # MTMR1
+        master1_r_first_input = numpy.expand_dims(master1_r_first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+        master1_r_last_input = numpy.expand_dims(master1_r_last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+
+        # MTML2
+        master2_l_first_input = numpy.expand_dims(master2_l_first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+        master2_l_last_input = numpy.expand_dims(master2_l_last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+
+        # MTMR2
+        master2_r_first_input = numpy.expand_dims(master2_r_first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+        master2_r_last_input = numpy.expand_dims(master2_r_last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+
+        # PSM1
+        puppet1_first_input = numpy.expand_dims(puppet1_first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+        puppet1_last_input = numpy.expand_dims(puppet1_last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+
+        # PSM2
+        puppet2_first_input = numpy.expand_dims(puppet2_first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+        puppet2_last_input = numpy.expand_dims(puppet2_last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
+
+        # MTML1
+        self.queue_MTML1_first3 = numpy.concatenate((self.queue_MTML1_first3, master1_l_first_input), axis=1)
+        self.queue_MTML1_last3 = numpy.concatenate((self.queue_MTML1_last3, master1_l_last_input), axis = 1)
+        self.queue_MTML1_first3 = self.queue_MTML1_first3[:, 1:, :]
+        self.queue_MTML1_last3 = self.queue_MTML1_last3[:, 1:, :]
+
+        master1_l_first_ort_inputs = self.queue_MTML1_first3.astype(numpy.float32)
+        master1_l_last_ort_inputs = self.queue_MTML1_last3.astype(numpy.float32)
+
+        # MTMR1
+        self.queue_MTMR1_first3 = numpy.concatenate((self.queue_MTMR1_first3, master1_r_first_input), axis=1)
+        self.queue_MTMR1_last3 = numpy.concatenate((self.queue_MTMR1_last3, master1_r_last_input), axis = 1)
+        self.queue_MTMR1_first3 = self.queue_MTMR1_first3[:, 1:, :]
+        self.queue_MTMR1_last3 = self.queue_MTMR1_last3[:, 1:, :]
+
+        master1_r_first_ort_inputs = self.queue_MTMR1_first3.astype(numpy.float32)
+        master1_r_last_ort_inputs = self.queue_MTMR1_last3.astype(numpy.float32)
+
+        # MTML2
+        self.queue_MTML2_first3 = numpy.concatenate((self.queue_MTML2_first3, master2_l_first_input), axis=1)
+        self.queue_MTML2_last3 = numpy.concatenate((self.queue_MTML2_last3, master2_l_last_input), axis = 1)
+        self.queue_MTML2_first3 = self.queue_MTML2_first3[:, 1:, :]
+        self.queue_MTML2_last3 = self.queue_MTML2_last3[:, 1:, :]
+
+        master2_l_first_ort_inputs = self.queue_MTML2_first3.astype(numpy.float32)
+        master2_l_last_ort_inputs = self.queue_MTML2_last3.astype(numpy.float32)
+
+        # MTMR2
+        self.queue_MTMR2_first3 = numpy.concatenate((self.queue_MTMR2_first3, master2_r_first_input), axis=1)
+        self.queue_MTMR2_last3 = numpy.concatenate((self.queue_MTMR2_last3, master2_r_last_input), axis = 1)
+        self.queue_MTMR2_first3 = self.queue_MTMR2_first3[:, 1:, :]
+        self.queue_MTMR2_last3 = self.queue_MTMR2_last3[:, 1:, :]
+
+        master2_r_first_ort_inputs = self.queue_MTMR2_first3.astype(numpy.float32)
+        master2_r_last_ort_inputs = self.queue_MTMR2_last3.astype(numpy.float32)
+
+        # PSM1
+        self.queue_PSM1_first3 = numpy.concatenate((self.queue_PSM1_first3, puppet1_first_input), axis=1)
+        self.queue_PSM1_last3 = numpy.concatenate((self.queue_PSM1_last3, puppet1_last_input), axis = 1)
+        self.queue_PSM1_first3 = self.queue_PSM1_first3[:, 1:, :]
+        self.queue_PSM1_last3 = self.queue_PSM1_last3[:, 1:, :]
+
+        puppet1_first_ort_inputs = self.queue_PSM1_first3.astype(numpy.float32)
+        puppet1_last_ort_inputs = self.queue_PSM1_last3.astype(numpy.float32)
+
+        # PSM2
+        self.queue_PSM2_first3 = numpy.concatenate((self.queue_PSM2_first3, puppet2_first_input), axis=1)
+        self.queue_PSM2_last3 = numpy.concatenate((self.queue_PSM2_last3, puppet2_last_input), axis = 1)
+        self.queue_PSM2_first3 = self.queue_PSM2_first3[:, 1:, :]
+        self.queue_PSM2_last3 = self.queue_PSM2_last3[:, 1:, :] 
+
+        puppet2_first_ort_inputs = self.queue_PSM2_first3.astype(numpy.float32)
+        puppet2_last_ort_inputs = self.queue_PSM2_last3.astype(numpy.float32)
+
+        input_names = [input.name for input in self.ort_session.get_inputs()]
+        inputs_merge = [master1_l_first_ort_inputs, master1_l_last_ort_inputs, master1_r_first_ort_inputs, master1_r_last_ort_inputs,
+                        master2_l_first_ort_inputs, master2_l_last_ort_inputs, master2_r_first_ort_inputs, master2_r_last_ort_inputs,
+                        puppet1_first_ort_inputs, puppet1_last_ort_inputs, puppet2_first_ort_inputs, puppet2_last_ort_inputs]
+        # print(f"input names: {input_names}")
+        inputs = {
+            name: inputs_merge[i] for i, name in enumerate(input_names)
+        }
+
+        model_name = model_merger.model_names
+        output_names = [f"{name}output" for name in model_name]
+
+        # ### output name test
+        # for output in ort_session.get_outputs():
+        #     print(output.name)
+
+
+        outputs = self.ort_session.run(output_names, inputs) # m1_l_first, m1_l_last, m1_r_first, m1_r_last, m2_l_first, m2_l_last, 
+        #m2_r_first, m2_r_last, p1_first, p1_last, p2_first, p2_last
+
+        #enum
+        master1_l_first_ort_outs = outputs[0]
+        master1_l_last_ort_outs = outputs[1]
+        master1_r_first_ort_outs = outputs[2]
+        master1_r_last_ort_outs = outputs[3]
+        master2_l_first_ort_outs = outputs[4]
+        master2_l_last_ort_outs = outputs[5]
+        master2_r_first_ort_outs = outputs[6]
+        master2_r_last_ort_outs = outputs[7]
+        puppet1_first_ort_outs = outputs[8]
+        puppet1_last_ort_outs = outputs[9]
+        puppet2_first_ort_outs = outputs[10]
+        puppet2_last_ort_outs = outputs[11]
+        # peel off
+        # MTML1
+        master1_l_torque_Joint1_3 = master1_l_first_ort_outs[0]
+        master1_l_torque_Joint4_6 = master1_l_last_ort_outs[0]
+        # MTMR1
+        master1_r_torque_Joint1_3 = master1_r_first_ort_outs[0]
+        master1_r_torque_Joint4_6 = master1_r_last_ort_outs[0]
+        # MTML2
+        master2_l_torque_Joint1_3 = master2_l_first_ort_outs[0]
+        master2_l_torque_Joint4_6 = master2_l_last_ort_outs[0]
+        # MTMR2
+        master2_r_torque_Joint1_3 = master2_r_first_ort_outs[0]
+        master2_r_torque_Joint4_6 = master2_r_last_ort_outs[0]
+        # PSM1
+        puppet1_torque_Joint1_3 = puppet1_first_ort_outs[0]
+        puppet1_torque_Joint4_6 = puppet1_last_ort_outs[0]
+        # PSM2
+        puppet2_torque_Joint1_3 = puppet2_first_ort_outs[0]
+        puppet2_torque_Joint4_6 = puppet2_last_ort_outs[0]
+
+        # de-normalize output
+        # MTML1
+        master1_l_torque_Joint1_3 = master1_l_torque_Joint1_3 * self.master1_l.firstmodel.target_std + self.master1_l.firstmodel.target_mean
+        master1_l_torque_Joint4_6 = master1_l_torque_Joint4_6 * self.master1_l.lastmodel.target_std + self.master1_l.lastmodel.target_mean
+
+        # MTMR1
+        master1_r_torque_Joint1_3 = master1_r_torque_Joint1_3 * self.master1_r.firstmodel.target_std + self.master1_r.firstmodel.target_mean
+        master1_r_torque_Joint4_6 = master1_r_torque_Joint4_6 * self.master1_r.lastmodel.target_std + self.master1_r.lastmodel.target_mean
+
+        # MTML2
+        master2_l_torque_Joint1_3 = master2_l_torque_Joint1_3 * self.master2_l.firstmodel.target_std + self.master2_l.firstmodel.target_mean
+        master2_l_torque_Joint4_6 = master2_l_torque_Joint4_6 * self.master2_l.lastmodel.target_std + self.master2_l.lastmodel.target_mean
+
+        # MTMR2
+        master2_r_torque_Joint1_3 = master2_r_torque_Joint1_3 * self.master2_r.firstmodel.target_std + self.master2_r.firstmodel.target_mean
+        master2_r_torque_Joint4_6 = master2_r_torque_Joint4_6 * self.master2_r.lastmodel.target_std + self.master2_r.lastmodel.target_mean
+
+        # PSM1
+        puppet1_torque_Joint1_3 = puppet1_torque_Joint1_3 * self.puppet1.firstmodel.target_std + self.puppet1.firstmodel.target_mean
+        puppet1_torque_Joint4_6 = puppet1_torque_Joint4_6 * self.puppet1.lastmodel.target_std + self.puppet1.lastmodel.target_mean
+
+        # PSM2
+        puppet2_torque_Joint1_3 = puppet2_torque_Joint1_3 * self.puppet2.firstmodel.target_std + self.puppet2.firstmodel.target_mean
+        puppet2_torque_Joint4_6 = puppet2_torque_Joint4_6 * self.puppet2.lastmodel.target_std + self.puppet2.lastmodel.target_mean
+
+        # calculate external force
+        # MTML1
+        master1_l_internal_torque = numpy.hstack((master1_l_torque_Joint1_3, master1_l_torque_Joint4_6))
+        master1_l_external_torque = (master1_l_total_torque - master1_l_internal_torque)
+        # MTMR1
+        master1_r_internal_torque = numpy.hstack((master1_r_torque_Joint1_3, master1_r_torque_Joint4_6))
+        master1_r_external_torque = (master1_r_total_torque - master1_r_internal_torque)
+        # MTML2
+        master2_l_internal_torque = numpy.hstack((master2_l_torque_Joint1_3, master2_l_torque_Joint4_6))
+        master2_l_external_torque = (master2_l_total_torque - master2_l_internal_torque)
+        # MTMR2
+        master2_r_internal_torque = numpy.hstack((master2_r_torque_Joint1_3, master2_r_torque_Joint4_6))
+        master2_r_external_torque = (master2_r_total_torque - master2_r_internal_torque)
+        # PSM1
+        puppet1_internal_torque = numpy.hstack((puppet1_torque_Joint1_3, puppet1_torque_Joint4_6))
+        puppet1_external_torque = (puppet1_total_torque - puppet1_internal_torque)
+        # PSM2
+        puppet2_internal_torque = numpy.hstack((puppet2_torque_Joint1_3, puppet2_torque_Joint4_6))
+        puppet2_external_torque = (puppet2_total_torque - puppet2_internal_torque)
+
+        # convert to cartesian force
+        # MTML1
+        master1_l_external_torque = numpy.append(master1_l_external_torque,master1_l_measured_torque[6])
+        master1_l_internal_torque = numpy.append(master1_l_internal_torque,master1_l_measured_torque[6])
+        master1_l_J = self.master1_l.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
+        master1_l_external_force = numpy.linalg.pinv(master1_l_J.T) @ master1_l_external_torque.T
+
+        # MTMR1
+        master1_r_external_torque = numpy.append(master1_r_external_torque,master1_r_measured_torque[6])
+        master1_r_internal_torque = numpy.append(master1_r_internal_torque,master1_r_measured_torque[6])
+        master1_r_J = self.master1_r.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
+        master1_r_external_force = numpy.linalg.pinv(master1_r_J.T) @ master1_r_external_torque.T 
+
+        # MTML2
+        master2_l_external_torque = numpy.append(master2_l_external_torque,master2_l_measured_torque[6])
+        master2_l_internal_torque = numpy.append(master2_l_internal_torque,master2_l_measured_torque[6])
+        master2_l_J = self.master2_l.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
+        master2_l_external_force = numpy.linalg.pinv(master2_l_J.T) @ master2_l_external_torque.T
+
+        # MTMR2
+        master2_r_external_torque = numpy.append(master2_r_external_torque,master2_r_measured_torque[6])
+        master2_r_internal_torque = numpy.append(master2_r_internal_torque,master2_r_measured_torque[6])
+        master2_r_J = self.master2_r.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
+        master2_r_external_force = numpy.linalg.pinv(master2_r_J.T) @ master2_r_external_torque.T
+
+        # PSM1
+        puppet1_J = self.puppet1.body_jacobian()   # shape (6,6) of PSM
+        puppet1_external_force = numpy.linalg.pinv(puppet1_J.T) @ puppet1_external_torque.T
+
+        # PSM2
+        puppet2_J = self.puppet2.body_jacobian()   # shape (6,6) of PSM
+        puppet2_external_force = numpy.linalg.pinv(puppet2_J.T) @ puppet2_external_torque.T
+
+        return (master1_l_external_force,master1_r_external_force,
+                master2_l_external_force,master2_r_external_force,
+                puppet1_external_force,puppet2_external_force)   # (6,) numpy array for each master and puppet
+    
+    def stop(self):
+        self.running = False    
+    ##############################################################################################################################################
 if __name__ == '__main__':
     # parse arguments
     parser = argparse.ArgumentParser(description = __doc__,
@@ -1005,19 +1603,56 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     from dvrk_system import *
-    mtml1 = ARM(MTML1, 'MTML1')   # create arm instances by arm names defined in the config.json
-    mtml2 = ARM(MTML2, 'MTML2')
-    psm2 = ARM(PSM2, 'PSM2')
+    path_root = "/home/xle6/dvrk_teleop_data/Aug_15/checkpoints/"
 
-    mtmr1 = ARM(MTMR1, 'MTMR1')
-    mtmr2 = ARM(MTMR2, 'MTMR2')
-    psm1 = ARM(PSM1, 'PSM1')
+    mtml1 = ARM(MTML1, 'MTML', 
+               firstjoints_onnxpath=path_root+"master1-First.onnx", 
+               firstjoints_parampath=path_root+"master1-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1-Last.onnx", 
+               lastjoints_parampath=path_root+"master1-Last-stat_params.npz")
+    mtml2 = ARM(MTML2, 'MTML-Si',
+               firstjoints_onnxpath=path_root+"master1-Si-First.onnx", 
+               firstjoints_parampath=path_root+"master1-Si-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1-Si-Last.onnx", 
+               lastjoints_parampath=path_root+"master1-Si-Last-stat_params.npz")
+    psm2 = ARM(PSM2, 'PSM2',
+              firstjoints_onnxpath=path_root+"puppet2-First.onnx", 
+               firstjoints_parampath=path_root+"puppet2-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet2-Last.onnx", 
+               lastjoints_parampath=path_root+"puppet2-Last-stat_params.npz")
+    mtmr1 = ARM(MTMR1, 'MTMR', 
+               firstjoints_onnxpath=path_root+"master2-First.onnx", 
+               firstjoints_parampath=path_root+"master2-First-stat_params.npz", lastjoints_onnxpath=path_root+"master2-Last.onnx", 
+               lastjoints_parampath=path_root+"master2-Last-stat_params.npz")
+    mtmr2 = ARM(MTMR2, 'MTMR-Si',
+               firstjoints_onnxpath=path_root+"master2-Si-First.onnx", 
+               firstjoints_parampath=path_root+"master2-Si-First-stat_params.npz", lastjoints_onnxpath=path_root+"master2-Si-Last.onnx", 
+               lastjoints_parampath=path_root+"master2-Si-Last-stat_params.npz")
+    psm1 = ARM(PSM1, 'PSM1',
+              firstjoints_onnxpath=path_root+"puppet-First.onnx", 
+               firstjoints_parampath=path_root+"puppet-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet-Last.onnx", 
+               lastjoints_parampath=path_root+"puppet-Last-stat_params.npz")
 
     clutch = clutch
     coag = coag
 
+    # merge models
+    merged_name = "dvrK_si_merge.onnx"
+
+    model_paths = (mtml1.firstmodel.onnx_path,mtml1.lastmodel.onnx_path, mtmr1.firstmodel.onnx_path, mtmr1.lastmodel.onnx_path,
+                   mtml2.firstmodel.onnx_path,mtml2.lastmodel.onnx_path, mtmr2.firstmodel.onnx_path, mtmr2.lastmodel.onnx_path,
+                   psm1.firstmodel.onnx_path, psm1.lastmodel.onnx_path, psm2.firstmodel.onnx_path, psm2.lastmodel.onnx_path)
+    
+    model_merger = ModelMerger(model_paths,path_root + merged_name)
+    if not os.path.exists(path_root + merged_name):
+        print("Merging models...")
+        model_merger.merge_models()
+        print("Models merged successfully.")
+
+    # load merged model
+    ort_session = onnxruntime.InferenceSession(path_root + merged_name, providers=["CPUExecutionProvider"])
+
     application = teleoperation(clutch, args.interval,
                                 not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha, 
                                 MTML_novice=mtml1, MTML_expert=mtml2, MTMR_novice=mtmr1, MTMR_expert=mtmr2, PSML=psm2, PSMR=psm1)
-     
+    
+    model_thread = model(mtml1, mtml2, psm2, mtmr1, mtmr2, psm1, ort_session=ort_session, freq=200)  
+    model_thread.start()
     application.run()

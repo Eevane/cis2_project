@@ -25,7 +25,7 @@ import sys
 import time
 from scipy.spatial.transform import Rotation as R
 import cisstVectorPython as cisstVector
-
+import csv
 
 class teleoperation:
     class State(Enum):
@@ -103,6 +103,16 @@ class teleoperation:
         # control law gain
         self.force_gain = 0.35
         self.velocity_gain = 1.1
+
+        """for recording"""
+        self.start_time = time.monotonic()
+        self.recording_enabled = False
+        self.record_size = 0
+
+        self.output_csv_path = f"/home/xle6/dvrk_teleop_data/Aug_17/{self.start_time:.6f}-dVRK-Last-Train-joint_data.csv"
+        self.csv_file = open(self.output_csv_path, "a", newline='')
+        self.csv_writer = csv.writer(self.csv_file)
+        self.header_written = os.path.getsize(self.output_csv_path) > 0
 
     def set_velocity_goal(self, v, base=1.10, max_gain=1.27, threshold=0.25):
         norm = numpy.linalg.norm(v)
@@ -799,6 +809,75 @@ class teleoperation:
         self.puppet_r_force.append(puppet_r_measured_cf.copy())
 
 
+
+        '''For recording'''
+        current_time = time.monotonic()
+        print(f"recording enabled: {self.recording_enabled}")
+        if not self.recording_enabled and float(current_time - self.start_time) >= 30.0:
+            print("Start recording joint data")
+            self.recording_enabled = True
+
+        if self.recording_enabled and self.record_size >= 200000:
+            print("Auto stopping: 100000 series of data acquired.")
+            # time.strftime("%Y-%m-%d %H:%M:%S", current_time)
+            # time.strftime("%Y-%m-%d %H:%M:%S", self.start_time)
+            print(f"start_time: {self.start_time}")
+            print(f"end_time: {current_time}")
+            self.recording_enabled = False
+            self.running = False
+
+        if self.recording_enabled:
+            self.record_size += 1
+            print("Recording data.")
+
+            timestamp = time.time()
+
+            master1_l_q, master1_l_dq, master1_l_torque = self.master1_l.measured_js()
+            master1_l_q = master1_l_q[:6].tolist()
+            master1_l_dq = master1_l_dq[:6].tolist()
+            master1_l_torque = master1_l_torque[:6].tolist()
+
+
+            master2_l_q, master2_l_dq, master2_l_torque = self.master2_l.measured_js()
+            master2_l_q = master2_l_q[:6].tolist()
+            master2_l_dq = master2_l_dq[:6].tolist()
+            master2_l_torque = master2_l_torque[:6].tolist()
+
+            puppet_l_q, puppet_l_dq, puppet_l_torque = self.puppet_l.measured_js()
+            puppet_l_q = puppet_l_q.tolist()
+            puppet_l_dq = puppet_l_dq.tolist()
+            puppet_l_torque = puppet_l_torque.tolist()
+
+            master1_r_q, master1_r_dq, master1_r_torque = self.master1_r.measured_js()
+            master1_r_q = master1_r_q[:6].tolist()
+            master1_r_dq = master1_r_dq[:6].tolist()
+            master1_r_torque = master1_r_torque[:6].tolist()
+
+
+            master2_r_q, master2_r_dq, master2_r_torque = self.master2_r.measured_js()
+            master2_r_q = master2_r_q[:6].tolist()
+            master2_r_dq = master2_r_dq[:6].tolist()
+            master2_r_torque = master2_r_torque[:6].tolist()
+
+            puppet_r_q, puppet_r_dq, puppet_r_torque = self.puppet_r.measured_js()
+            puppet_r_q = puppet_r_q.tolist()
+            puppet_r_dq = puppet_r_dq.tolist()
+            puppet_r_torque = puppet_r_torque.tolist()
+
+            row = [timestamp] + master1_l_q + master1_l_dq + master1_l_torque + master2_l_q + master2_l_dq + master2_l_torque + puppet_l_q + puppet_l_dq + puppet_l_torque + master1_r_q + master1_r_dq + master1_r_torque + master2_r_q + master2_r_dq + master2_r_torque + puppet_r_q + puppet_r_dq + puppet_r_torque
+
+            if not self.header_written:
+                headers = ['timestamp'] + \
+                        [f'master1_l_q{i}' for i in range(6)] + [f'master1_l_dq{i}' for i in range(6)] + [f'master1_l_tau{i}' for i in range(6)] + \
+                        [f'master2_l_q{i}' for i in range(6)] + [f'master2_l_dq{i}' for i in range(6)] + [f'master2_l_tau{i}' for i in range(6)] + \
+                        [f'puppet_l_q{i}' for i in range(6)]  + [f'puppet_l_dq{i}' for i in range(6)]  + [f'puppet_l_tau{i}' for i in range(6)] + \
+                        [f'master1_r_q{i}' for i in range(6)] + [f'master1_r_dq{i}' for i in range(6)] + [f'master1_r_tau{i}' for i in range(6)] + \
+                        [f'master2_r_q{i}' for i in range(6)] + [f'master2_r_dq{i}' for i in range(6)] + [f'master2_r_tau{i}' for i in range(6)] + \
+                        [f'puppet_r_q{i}' for i in range(6)]  + [f'puppet_r_dq{i}' for i in range(6)]  + [f'puppet_r_tau{i}' for i in range(6)]
+                self.csv_writer.writerow(headers)
+                self.header_written = True
+
+            self.csv_writer.writerow(row)
     def home(self):
         print("Homing arms...")
         system.home()
@@ -1000,7 +1079,7 @@ if __name__ == '__main__':
                          help = 'dominance factor of position channel, between 0 and 1')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")
-    parser.add_argument('-i', '--interval', type=float, default=0.00066,
+    parser.add_argument('-i', '--interval', type=float, default=0.0013,
                         help = 'time interval/period to run at - should be as long as system\'s period to prevent timeouts')
     args = parser.parse_args()
 
