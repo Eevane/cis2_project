@@ -89,10 +89,10 @@ class teleoperation:
 
         # control law gain
         self.force_gain = 0.35
-        self.velocity_gain = 1.1
+        self.velocity_gain = 1.0
         self.position_gain = 1.0
 
-    def set_velocity_goal(self, v, base=1.12, max_gain=1.2, threshold=0.02):
+    def set_velocity_goal(self, v, base=1.10, max_gain=1.18, threshold=0.1):
         norm = numpy.linalg.norm(v)
         if norm < threshold:
             gain = max_gain
@@ -420,7 +420,7 @@ class teleoperation:
         master2_translation = master2_measured_trans - master2_initial_trans
         master1_translation *= self.scale
         master2_translation *= self.scale
-        master_total_translation = self.position_gain * (master1_translation + master2_translation) / 2.0
+        master_total_translation = self.position_gain * (self.alpha * master1_translation + (1 - self.alpha) * master2_translation)
         puppet_position = master_total_translation + puppet_initial_trans
 
         # set rotation of psm to match mtm plus alignment offset
@@ -438,7 +438,7 @@ class teleoperation:
         master2_rotation_alignment = master2_measured_rot @ master2_alignment_offset
 
         # average rotation
-        puppet_rotation = self.average_rotation(master1_rotation_alignment, master2_rotation_alignment)
+        puppet_rotation = self.average_rotation(master1_rotation_alignment, master2_rotation_alignment, alpha=self.alpha)
 
         # set cartesian goal of psm
         puppet_cartesian_goal = self.set_vctFrm3(rotation=puppet_rotation, translation=puppet_position)
@@ -454,9 +454,9 @@ class teleoperation:
         master2_measured_cv[3:6] *= 0.2     
 
         # average velocity
-        # puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
+        # puppet_velocity_goal = self.velocity_gain * (self.alpha * master1_measured_cv + (1 - self.alpha) * master2_measured_cv)
 
-        raw_puppet_velocity_goal = (master1_measured_cv + master2_measured_cv) / 2.0
+        raw_puppet_velocity_goal = self.alpha * master1_measured_cv + (1 - self.alpha) * master2_measured_cv
         puppet_velocity_goal = self.set_velocity_goal(v=raw_puppet_velocity_goal)
         # Move
         self.puppet.servo_cs(puppet_cartesian_goal, puppet_velocity_goal, force_goal)
@@ -489,10 +489,10 @@ class teleoperation:
         master2_translation /= self.scale
 
         # set translation of mtm1
-        master1_translation_goal = self.position_gain * (master2_translation + puppet_translation) / 2.0
+        master1_translation_goal = self.position_gain * puppet_translation
         master1_position = master1_translation_goal + master1_initial_trans
         # set translation of mtm2
-        master2_translation_goal = self.position_gain * (master1_translation + puppet_translation) / 2.0
+        master2_translation_goal = self.position_gain * puppet_translation
         master2_position = master2_translation_goal + master2_initial_trans
 
         # set rotation of mtm1
@@ -520,19 +520,25 @@ class teleoperation:
         master2_measured_cv[0:3] /= self.velocity_scale
 
         # set velocity goal
-        # master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
-        # master2_velocity_goal = self.velocity_gain * (puppet_measured_cv + master1_measured_cv) / 2.0
+        # master1_velocity_goal = self.velocity_gain * (puppet_measured_cv)
+        # master2_velocity_goal = self.velocity_gain * (puppet_measured_cv)
 
-        raw_master1_velocity_goal = (puppet_measured_cv + master2_measured_cv) / 2.0
-        raw_master2_velocity_goal = (puppet_measured_cv + master1_measured_cv) / 2.0
+        raw_master1_velocity_goal = puppet_measured_cv
+        raw_master2_velocity_goal = puppet_measured_cv
 
         master1_velocity_goal = self.set_velocity_goal(v=raw_master1_velocity_goal)
         master2_velocity_goal = self.set_velocity_goal(v=raw_master2_velocity_goal)
 
 
+        # # Move
+        # self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
+        # self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
+
         # Move
-        self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
-        self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
+        if self.alpha > 1e-8:
+            self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
+        if (1 - self.alpha) > 1e-8:
+            self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
         """
         record plotting data
@@ -573,7 +579,7 @@ class teleoperation:
         #     print("home not success")
         #     return
         
-        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713])
+        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.13, 1.28645, -0.0889504, 0.174713])
         self.puppet.move_jp(puppet_initial_position)
         time.sleep(3)
         
@@ -631,11 +637,11 @@ class teleoperation:
             system.power_off()
 
         # save data
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/PSM_total_force.txt', self.puppet_force, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTML_total_force.txt', self.m1_force, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_11/MTMR_total_force.txt', self.m2_force, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/PSM_total_force.txt', self.puppet_force, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTML_total_force.txt', self.m1_force, fmt='%f', delimiter=' ', comments='')
+        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTMR_total_force.txt', self.m2_force, fmt='%f', delimiter=' ', comments='')
         print(f"data.txt saved!")
 
 class ARM:
@@ -674,7 +680,7 @@ class ARM:
         return body_force.copy()
 
     def gripper_measured_js(self):
-        assert self.name in ("MTML", "MTMR")
+        assert self.name.startswith(("MTML", "MTMR"))
         gripper = self.arm.gripper.measured_js()
         gripper_position = gripper.Position()
         return gripper_position.copy()
@@ -745,9 +751,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     from dvrk_system import *
-    mtm1 = ARM(MTML, 'MTML')
-    mtm2 = ARM(MTMR, 'MTMR')
-    psm = ARM(PSM1, 'PSM1')
+    mtm1 = ARM(MTML, 'MTML1')
+    mtm2 = ARM(MTMR, 'MTML2')
+    psm = ARM(PSM2, 'PSM2')
 
     clutch = clutch
     coag = coag

@@ -2,14 +2,14 @@ import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
 
-true_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/multi_array.txt', skiprows=1)
-expect_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/multi_array_exp.txt', skiprows=1)
-gamma = -1
+true_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_29/multi_array.txt', skiprows=1)
+expect_pos = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_29/multi_array_exp.txt', skiprows=1)
+gamma = -1.0
 beta = 0.5
 
-m1_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/MTML_total_force.txt', skiprows=1, usecols=(0, 1, 2))
-m2_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/MTMR_total_force.txt', skiprows=1, usecols=(0, 1, 2))
-puppet_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_11/PSM_total_force.txt', skiprows=1, usecols=(0, 1, 2))
+m1_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_29/MTML_total_force.txt', skiprows=1, usecols=(0, 1, 2))
+m2_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_29/MTMR_total_force.txt', skiprows=1, usecols=(0, 1, 2))
+puppet_force = np.loadtxt(f'/home/xle6/dvrk_teleop_data/July_29/PSM_total_force.txt', skiprows=1, usecols=(0, 1, 2))
 total_force = beta * m1_force + (1-beta) * m2_force
 puppet_force = gamma * puppet_force
 
@@ -107,23 +107,35 @@ axs[2].legend()
 axs[2].tick_params(labelsize=14)
 
 fig.tight_layout()
-plt.show()
 
 
+""" plot error histogram """
+from scipy.stats import skew
+hist_axis = ['X', 'Y', 'Z']
+for i in range(puppet_force.shape[1]):
+    diff_force = total_force[:,i] - puppet_force[:,i]
+    mu = np.mean(diff_force)
+    sigma = np.std(diff_force)
 
-# #  plot force norm
-# fig, axs = plt.subplots(1, 1, figsize=(12, 14), sharex=True)
+    bin_edges = np.histogram_bin_edges(diff_force, bins='auto')
 
-# axs.plot(x, total_force_norm, linewidth=lw, label='m1+m2_force_x')
-# axs.plot(x, puppet_force_norm, linewidth=lw, label='puppet_force_x')
-# axs.set_ylabel("Force (N)", fontsize=14, fontweight='bold')
-# axs.set_title("Force norm", fontsize=16, fontweight='bold')
-# axs.legend()
-# axs.tick_params(labelsize=14)
-
-# fig.tight_layout()
-# plt.show()
-
-
-
+    plt.figure(figsize=(6,4))
+    counts, bins, patches = plt.hist(
+        diff_force,
+        bins = bin_edges,
+        density=False,
+        color = 'skyblue'
+    )    
+    plt.axvline(mu, color = 'red', linestyle='--',
+                label = f"mean = {mu:.2f}")
+    plt.axvline(mu + sigma, color = 'green', linestyle=':',
+                label = f"+sigma = {sigma:.2f}")
+    plt.axvline(mu - sigma, color = 'green', linestyle=':',
+                label = f"-sigma = {sigma:.2f}")
+    plt.xlabel("Force error (N)")
+    plt.ylabel("Counts")
+    plt.title(f"Force tracking error histogram {hist_axis[i]} axis\n mean={mu:.2f}, std={sigma:.2f}")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 

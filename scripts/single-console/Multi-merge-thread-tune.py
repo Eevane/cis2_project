@@ -59,7 +59,7 @@ class teleoperation:
         CLUTCHED = 2
         FOLLOWING = 3
 
-    def __init__(self, mtm1, mtm2, puppet, clutch_topic, run_period, align_mtm, operator_present_topic="", alpha = 0.5, beta = 0.5):
+    def __init__(self, mtm1, mtm2, puppet, clutch_topic, run_period, align_mtm, operator_present_topic="", alpha = 0.5):
         print('Initialzing dvrk_teleoperation for {}, {} and {}'.format(mtm1.name, mtm2.name, puppet.name))
         print(f"running at frequency of {1/run_period}")
         self.run_period = run_period
@@ -70,10 +70,9 @@ class teleoperation:
 
         # dominance factor
         self.alpha = alpha
-        self.beta = beta
 
-        self.scale = 0.2
-        self.velocity_scale = 0.2
+        self.scale = 0.25
+        self.velocity_scale = 0.25
 
         self.gripper_max = 60 * math.pi / 180
         self.gripper_zero = 0.0 # Set to e.g. 20 degrees if gripper cannot close past zero
@@ -116,7 +115,7 @@ class teleoperation:
         #####################################################################################
 
         # control law gain
-        self.force_gain = 0.35
+        self.force_gain = 0.2
         self.velocity_gain = 1.135
 
 
@@ -511,8 +510,12 @@ class teleoperation:
         
         # force input
         gamma = 1.0
-        force_goal = self.force_gain * (self.beta * master1_external_f + (1 - self.beta) * master2_external_f + gamma * puppet_external_f)
+        force_goal = self.force_gain * (self.alpha * master1_external_f + (1 - self.alpha) * master2_external_f + gamma * puppet_external_f)
         force_goal = force_goal.reshape(-1)
+        # force_goal_MTML = self.force_gain * (master2_external_f + gamma * puppet_external_f)
+        # force_goal_MTML = force_goal_MTML.reshape(-1)
+        # force_goal_MTMR = self.force_gain * (master1_external_f + gamma * puppet_external_f)
+        # force_goal_MTMR = force_goal_MTMR.reshape(-1)
 
         # Position channel
         master1_measured_trans, master1_measured_rot = self.master1.measured_cp()
@@ -527,7 +530,7 @@ class teleoperation:
         master2_translation = master2_measured_trans - master2_initial_trans
         master1_translation *= self.scale
         master2_translation *= self.scale
-        master_total_translation = (master1_translation + master2_translation) / 2.0
+        master_total_translation = self.alpha * master1_translation + (1 - self.alpha) * master2_translation
         puppet_position = master_total_translation + puppet_initial_trans
 
         # set rotation of psm to match mtm plus alignment offset
@@ -545,7 +548,7 @@ class teleoperation:
         master2_rotation_alignment = master2_measured_rot @ master2_alignment_offset
 
         # average rotation
-        puppet_rotation = self.average_rotation(master1_rotation_alignment, master2_rotation_alignment)
+        puppet_rotation = self.average_rotation(master1_rotation_alignment, master2_rotation_alignment, alpha=self.alpha)
 
         # set cartesian goal of psm
         puppet_cartesian_goal = self.set_vctFrm3(rotation=puppet_rotation, translation=puppet_position)
@@ -554,16 +557,13 @@ class teleoperation:
         # Velocity channel
         master1_measured_cv = self.master1.measured_cv()   # (6,) numpy array
         master1_measured_cv[0:3] *= self.velocity_scale      # scale the linear velocity
-        master1_measured_cv[3:6] *= 0.8      # scale down the angular velocity by 0.8
+        master1_measured_cv[3:6] *= 1.0      # scale down the angular velocity by 0.8
 
         master2_measured_cv = self.master2.measured_cv()   # master2
         master2_measured_cv[0:3] *= self.velocity_scale     
-        master2_measured_cv[3:6] *= 0.8     
+        master2_measured_cv[3:6] *= 1.0     
 
-        # average velocity
-        # puppet_velocity_goal = self.velocity_gain * (master1_measured_cv + master2_measured_cv) / 2.0
-
-        raw_puppet_velocity_goal = (master1_measured_cv + master2_measured_cv) / 2.0
+        raw_puppet_velocity_goal = self.alpha * master1_measured_cv + (1 - self.alpha) * master2_measured_cv
         puppet_velocity_goal = self.set_velocity_goal(v=raw_puppet_velocity_goal)
 
         # Move
@@ -577,7 +577,7 @@ class teleoperation:
         master1_ghost_lag = current_master1_gripper - self.gripper_ghost
         master2_ghost_lag = current_master2_gripper - self.gripper_ghost
         # average gripper lag
-        ghost_lag = (master1_ghost_lag + master2_ghost_lag) / 2.0
+        ghost_lag = self.alpha * master1_ghost_lag + (1 - self.alpha) * master2_ghost_lag
 
         max_delta = self.jaw_rate * self.run_period
         # move ghost at most max_delta towards current gripper
@@ -593,28 +593,16 @@ class teleoperation:
         puppet_measured_trans, puppet_measured_rot = self.puppet.measured_cp()
         puppet_translation = puppet_measured_trans - puppet_initial_trans     ##### should it update puppet initial cartesian after forward process???
         puppet_translation /= self.scale
-        master1_translation /= self.scale
-        master2_translation /= self.scale
 
         # set translation of mtm1
-        master1_translation_goal = (master2_translation + puppet_translation) / 2.0
-        master1_position = master1_translation_goal + master1_initial_trans
+        master1_position = puppet_translation + master1_initial_trans
         # set translation of mtm2
-        master2_translation_goal = (master1_translation + puppet_translation) / 2.0
-        master2_position = master2_translation_goal + master2_initial_trans
+        master2_position = puppet_translation + master2_initial_trans
 
         # set rotation of mtm1
-        master2_rotation_alignment_ToMaster1 = master2_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
-        puppet_rotation_alignment_ToMaster1 = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
+        master1_rotation = puppet_measured_rot @ numpy.linalg.inv(master1_alignment_offset)
         # set rotation of mtm2
-        master1_rotation_alignment_ToMaster2 = master1_measured_rot @ numpy.linalg.inv(self.alignment_offset_initial_masters)
-        puppet_rotation_alignment_ToMaster2 = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
-
-        # average rotation
-        # master1_rotation = self.average_rotation(master2_rotation_alignment_ToMaster1, puppet_rotation_alignment_ToMaster1)
-        # master2_rotation = self.average_rotation(master1_rotation_alignment_ToMaster2, puppet_rotation_alignment_ToMaster2)
-        master1_rotation = puppet_rotation_alignment_ToMaster1
-        master2_rotation = puppet_rotation_alignment_ToMaster2
+        master2_rotation = puppet_measured_rot @ numpy.linalg.inv(master2_alignment_offset)
 
         # set cartesian goal of mtm1 and mtm2
         master1_cartesian_goal = self.set_vctFrm3(rotation=master1_rotation, translation=master1_position)
@@ -624,38 +612,34 @@ class teleoperation:
         # Velocity channel
         puppet_measured_cv = self.puppet.measured_cv()   # (6,) numpy array
         puppet_measured_cv[0:3] /= self.velocity_scale      # scale the linear velocity
-        puppet_measured_cv[3:6] *= 0.8      # scale down the angular velocity by 0.8
-
-        master1_measured_cv[0:3] /= self.velocity_scale
-        master2_measured_cv[0:3] /= self.velocity_scale
+        # puppet_measured_cv[3:6] *= 0.8      # scale down the angular velocity by 0.8
 
         # set velocity goal
         # master1_velocity_goal = self.velocity_gain * (puppet_measured_cv + master2_measured_cv) / 2.0
         # master2_velocity_goal = self.velocity_gain * (puppet_measured_cv + master1_measured_cv) / 2.0
 
-        raw_master1_velocity_goal = (puppet_measured_cv + master2_measured_cv) / 2.0
-        raw_master2_velocity_goal = (puppet_measured_cv + master1_measured_cv) / 2.0
+        master1_velocity_goal = self.set_velocity_goal(v=puppet_measured_cv)
+        master2_velocity_goal = self.set_velocity_goal(v=puppet_measured_cv)
 
-        master1_velocity_goal = self.set_velocity_goal(v=raw_master1_velocity_goal)
-        master2_velocity_goal = self.set_velocity_goal(v=raw_master2_velocity_goal)
-
-        # Move
+        # # Move
+        # self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal_MTML)
+        # self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal_MTMR)
         self.master1.servo_cs(master1_cartesian_goal, master1_velocity_goal, force_goal)
         self.master2.servo_cs(master2_cartesian_goal, master2_velocity_goal, force_goal)
 
 
-        """
-        record measured cartesian force
-        """
-        self.total_force_MTML.append(master1_measured_cf.copy())
-        self.total_force_MTMR.append(master2_measured_cf.copy())
-        self.total_force_PSM.append(puppet_measured_cf.copy())
+        # """
+        # record measured cartesian force
+        # """
+        # self.total_force_MTML.append(master1_measured_cf.copy())
+        # self.total_force_MTMR.append(master2_measured_cf.copy())
+        # self.total_force_PSM.append(puppet_measured_cf.copy())
 
-        """
-        record position tracking
-        """
-        self.y_data_l.append(puppet_measured_trans.copy())
-        self.y_data_l_expected.append(puppet_position.copy())
+        # """
+        # record position tracking
+        # """
+        # self.y_data_l.append(puppet_measured_trans.copy())
+        # self.y_data_l_expected.append(puppet_position.copy())
 
 
 
@@ -687,9 +671,10 @@ class teleoperation:
         #     print("home not success")
         #     return
         
-        puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713])
-        self.puppet.move_jp(puppet_initial_position)
-        time.sleep(3)
+        # puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.142947, 1.28645, -0.0889504, 0.174713]) # joint 3 -> height
+        # # puppet_initial_position = numpy.array([-0.00270296, 0.0368143, 0.13, 1.28645, -0.0889504, 0.174713])
+        # self.puppet.move_jp(puppet_initial_position)
+        # time.sleep(3)
 
         print("Running teleop at {} Hz".format(int(1/self.run_period)))
 
@@ -749,28 +734,28 @@ class teleoperation:
             system.power_off()
 
 
-        # save data
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTML_total_force.txt', self.total_force_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTMR_total_force.txt', self.total_force_MTMR, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/PSM_total_force.txt', self.total_force_PSM, fmt='%f', delimiter=' ', comments='')
+        # # save data
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array.txt', self.y_data_l, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTML_total_force.txt', self.total_force_MTML, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/MTMR_total_force.txt', self.total_force_MTMR, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/July_29/PSM_total_force.txt', self.total_force_PSM, fmt='%f', delimiter=' ', comments='')
 
 
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_internal.txt', internal_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_total.txt', total_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_force.txt', internal_force_PSM, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_internal.txt', internal_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_total.txt', total_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_force.txt', internal_force_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_internal.txt', internal_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_total.txt', total_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_force.txt', internal_force_MTMR, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/PSM_internal.txt', internal_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/PSM_total.txt', total_torque_record_PSM, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/PSM_force.txt', internal_force_PSM, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTML_internal.txt', internal_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTML_total.txt', total_torque_record_MTML, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTML_force.txt', internal_force_MTML, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_internal.txt', internal_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_total.txt', total_torque_record_MTMR, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_force.txt', internal_force_MTMR, fmt='%f', delimiter=' ', comments='')
 
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTML_CF.txt', cartesian_force_MTML, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/MTMR_CF.txt', cartesian_force_MTMR, fmt='%f', delimiter=' ', comments='')
-        numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_02/Model_performance/PSM_CF.txt', cartesian_force_PSM, fmt='%f', delimiter=' ', comments='')
-        print(f"data.txt saved!")
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTML_CF.txt', cartesian_force_MTML, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_CF.txt', cartesian_force_MTMR, fmt='%f', delimiter=' ', comments='')
+        # numpy.savetxt('/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/PSM_CF.txt', cartesian_force_PSM, fmt='%f', delimiter=' ', comments='')
+        # print(f"data.txt saved!")
 
 class ARM:
     class LoadModel:
@@ -842,7 +827,7 @@ class ARM:
         return body_force.copy()
 
     def gripper_measured_js(self):
-        assert self.name in ("MTML", "MTMR")
+        assert self.name.startswith(("MTM"))
         gripper = self.arm.gripper.measured_js()
         gripper_position = gripper.Position()
         return gripper_position.copy()
@@ -895,110 +880,6 @@ class ARM:
         arg = self.arm.move_jp.GetArgumentPrototype()
         arg.SetGoal(goal)
         self.arm.move_jp(arg)
-    
-        # model inference ##################################################################################################################
-    # def externalforce_prediction(self):
-    #     # measured_js returns 6 joints for PSM, 7 joints for MTM
-    #     measured_q, measured_dq, measured_torque = self.measured_js()
-    #     q = measured_q[:6]
-    #     if not q.any():
-    #         ans = numpy.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    #         return ans
-    #     # print(f"q: {q}")
-    #     dq = measured_dq[:6]
-    #     total_torque = measured_torque[:6]
-    #     # print(f"{component.name} measured_jf is: {total_torque}")
-
-    #     # normalize input
-    #     first_input = numpy.concatenate((q[0:3], dq[0:3]))
-    #     last_input = numpy.concatenate((q[3:6], dq[3:6]))
-
-    #     # print(f"input mean is: {self.firstmodel.input_mean}")
-    #     # print(f"input std is: {self.firstmodel.input_std}")
-    #     # print(f"first input:{first_input}")
-        
-    #     first_input = (first_input - self.firstmodel.input_mean) / self.firstmodel.input_std
-    #     last_input = (last_input - self.lastmodel.input_mean) / self.lastmodel.input_std
-
-    #     first_input = numpy.expand_dims(first_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-    #     last_input = numpy.expand_dims(last_input.reshape(1,-1), axis=0)    # shape(1,1,6)
-    #     if self.name == 'MTML':
-    #         self.queue_MTML_first3 = numpy.concatenate((self.queue_MTML_first3, first_input), axis=1)
-    #         self.queue_MTML_last3 = numpy.concatenate((self.queue_MTML_last3, last_input), axis = 1)
-    #         self.queue_MTML_first3 = self.queue_MTML_first3[:, 1:, :]
-    #         self.queue_MTML_last3 = self.queue_MTML_last3[:, 1:, :]
-
-    #         # model predict
-    #         first_ort_inputs = {self.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTML_first3.astype(numpy.float32)}
-    #         first_ort_outs = self.firstmodel.ort_session.run(None, first_ort_inputs)
-    #         last_ort_inputs = {self.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTML_last3.astype(numpy.float32)}
-    #         last_ort_outs = self.lastmodel.ort_session.run(None, last_ort_inputs)
-
-    #     elif self.name == 'MTMR':
-    #         self.queue_MTMR_first3 = numpy.concatenate((self.queue_MTMR_first3, first_input), axis=1)
-    #         self.queue_MTMR_last3 = numpy.concatenate((self.queue_MTMR_last3, last_input), axis = 1)
-    #         self.queue_MTMR_first3 = self.queue_MTMR_first3[:, 1:, :]
-    #         self.queue_MTMR_last3 = self.queue_MTMR_last3[:, 1:, :]
-
-    #         # model predict
-    #         first_ort_inputs = {self.firstmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_first3.astype(numpy.float32)}
-    #         first_ort_outs = self.firstmodel.ort_session.run(None, first_ort_inputs)
-    #         last_ort_inputs = {self.lastmodel.ort_session.get_inputs()[0].name: self.queue_MTMR_last3.astype(numpy.float32)}
-    #         last_ort_outs = self.lastmodel.ort_session.run(None, last_ort_inputs)
-
-    #     else:
-    #         self.queue_PSM_first3 = numpy.concatenate((self.queue_PSM_first3, first_input), axis=1)
-    #         self.queue_PSM_last3 = numpy.concatenate((self.queue_PSM_last3, last_input), axis = 1)
-    #         self.queue_PSM_first3 = self.queue_PSM_first3[:, 1:, :]
-    #         self.queue_PSM_last3 = self.queue_PSM_last3[:, 1:, :]
-
-    #         # model predict
-    #         first_ort_inputs = {self.firstmodel.ort_session.get_inputs()[0].name: self.queue_PSM_first3.astype(numpy.float32)}
-    #         first_ort_outs = self.firstmodel.ort_session.run(None, first_ort_inputs)
-    #         last_ort_inputs = {self.lastmodel.ort_session.get_inputs()[0].name: self.queue_PSM_last3.astype(numpy.float32)}
-    #         last_ort_outs = self.lastmodel.ort_session.run(None, last_ort_inputs)
-
-
-    #     # denormalize output
-    #     torque_Joint1_3 = first_ort_outs[0]
-    #     torque_Joint4_6 = last_ort_outs[0]
-
-    #     torque_Joint1_3 = torque_Joint1_3 * self.firstmodel.target_std + self.firstmodel.target_mean
-    #     torque_Joint4_6 = torque_Joint4_6 * self.lastmodel.target_std + self.lastmodel.target_mean
-
-    #     internal_torque = numpy.hstack((torque_Joint1_3, torque_Joint4_6))
-    #     external_torque = (total_torque - internal_torque)
-
-    #     # convert to cartesian force
-    #     if self.name.startswith('MTM'):
-    #         external_torque = numpy.concatenate((external_torque, numpy.array([[measured_torque[6]]])), axis=1)
-    #         internal_torque = numpy.concatenate((internal_torque, numpy.array([[measured_torque[6]]])), axis=1)
-    #     J = self.body_jacobian()   # shape (6,7) of MTM and (6,6) of PSM
-    #     external_force = numpy.linalg.pinv(J.T) @ external_torque.T
-
-    #     # """ recored inferred force for plot """
-    #     # internal_force = numpy.linalg.pinv(J.T) @ internal_torque.T
-    #     # # print(f"internal force: {internal_force}")
-    #     # # print(f"internal force shape: {internal_force.shape}")
-    #     # if self.name.startswith('PSM'):
-    #     #     self.internal_torque_record_PSM.append(internal_torque.reshape(-1).tolist())
-    #     #     self.total_torque_record_PSM.append(total_torque)
-    #     #     self.internal_force_PSM.append(internal_force.reshape(-1).tolist())
-
-    #     # elif self.name == 'MTML':
-    #     #     self.internal_torque_record_MTML.append(internal_torque.reshape(-1).tolist())
-    #     #     self.total_torque_record_MTML.append(total_torque)
-    #     #     self.internal_force_MTML.append(internal_force.reshape(-1).tolist())
-
-    #     # else:
-    #     #     self.internal_torque_record_MTMR.append(internal_torque.reshape(-1).tolist())
-    #     #     self.total_torque_record_MTMR.append(total_torque)
-    #     #     self.internal_force_MTMR.append(internal_force.reshape(-1).tolist())
-
-    #     return external_force
-    # ##############################################################################################################################################
-
-
 
 class model(threading.Thread):
     def __init__(self, master1, master2, puppet, freq):
@@ -1278,6 +1159,8 @@ class model(threading.Thread):
         internal_torque_record_MTMR.append(master2_internal_torque.reshape(-1).tolist())
         total_torque_record_MTMR.append(master2_total_torque)
         internal_force_MTMR.append(master2_internal_force.reshape(-1).tolist())
+
+        # print(f"master2_internal_torque{master2_internal_torque}")
    
         return (master1_external_force,master2_external_force, puppet_external_force, master1_internal_force, master2_internal_force, puppet_internal_force)   # (6,) numpy array for each master and puppet
 
@@ -1292,9 +1175,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description = __doc__,
                                      formatter_class = argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-a', '--alpha', type = float, required = False, default= 0.5,
-                         help = 'dominance factor alpha, between 0 and 1')
-    parser.add_argument('-b', '--beta', type = float, required = False, default= 0.5,
-                         help = 'dominance factor beta, between 0 and 1')
+                         help = 'dominance factor, between 0 and 1')
     parser.add_argument('-n', '--no-mtm-alignment', action='store_true',
                         help="don't align mtm (useful for using haptic devices as MTM which don't have wrist actuation)")
     parser.add_argument('-i', '--interval', type=float, default=0.00118,
@@ -1302,56 +1183,87 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     from dvrk_system import *
-    # path_root = "/home/xle6/dvrk_teleop_data/July_31/200Hz/checkpoints/len5/"
-    # mtm1 = ARM(MTML, 'MTML', 
-    #            firstjoints_onnxpath=path_root+"master1-strong-First.onnx", 
-    #            firstjoints_parampath=path_root+"master1-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1-strong-Last.onnx", 
-    #            lastjoints_parampath=path_root+"master1-strong-Last-stat_params.npz")
-    # mtm2 = ARM(MTMR, 'MTMR',
-    #            firstjoints_onnxpath=path_root+"master2-strong-First.onnx", 
-    #            firstjoints_parampath=path_root+"master2-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"master2-strong-Last.onnx", 
-    #            lastjoints_parampath=path_root+"master2-strong-Last-stat_params.npz")
-    # psm = ARM(PSM1, 'PSM1',
-    #           firstjoints_onnxpath=path_root+"puppet-strong-First.onnx", 
-    #            firstjoints_parampath=path_root+"puppet-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet-strong-Last.onnx", 
-    #            lastjoints_parampath=path_root+"puppet-strong-Last-stat_params.npz")
+    path_root = "/home/xle6/dvrk_teleop_data/Aug_18/checkpoints/"
 
-    # path_root = "/home/xle6/dvrk_teleop_data/Aug_04/checkpoints/"
-    path_root = "/home/xle6/dvrk_teleop_data/Aug_03/model/len10/"
-    # path_root = "/home/xle6/dvrk_teleop_data/July_11/model/"
-    mtm1 = ARM(MTML, 'MTML', 
-               firstjoints_onnxpath=path_root+"master1-First.onnx", 
-               firstjoints_parampath=path_root+"master1-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1-Last.onnx", 
-               lastjoints_parampath=path_root+"master1-Last-stat_params.npz")
-    mtm2 = ARM(MTMR, 'MTMR',
-               firstjoints_onnxpath=path_root+"master2-First.onnx", 
-               firstjoints_parampath=path_root+"master2-First-stat_params.npz", lastjoints_onnxpath=path_root+"master2-Last.onnx", 
-               lastjoints_parampath=path_root+"master2-Last-stat_params.npz")
-    psm = ARM(PSM1, 'PSM1',
-              firstjoints_onnxpath=path_root+"puppet-First.onnx", 
-               firstjoints_parampath=path_root+"puppet-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet-Last.onnx", 
-               lastjoints_parampath=path_root+"puppet-Last-stat_params.npz")
+    # mtml1 = ARM(MTML1, 'MTML', 
+    #            firstjoints_onnxpath=path_root+"master1_l-First.onnx", 
+    #            firstjoints_parampath=path_root+"master1_l-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1_l-Last.onnx", 
+    #            lastjoints_parampath=path_root+"master1_l-Last-stat_params.npz")
+    # mtml2 = ARM(MTML2, 'MTML-Si',
+    #            firstjoints_onnxpath=path_root+"master2_l-First.onnx", 
+    #            firstjoints_parampath=path_root+"master2_l-First-stat_params.npz", lastjoints_onnxpath=path_root+"master2_l-Last.onnx", 
+    #            lastjoints_parampath=path_root+"master2_l-Last-stat_params.npz")
+    # psm2 = ARM(PSM2, 'PSM2',
+    #           firstjoints_onnxpath=path_root+"puppet_l-First.onnx", 
+    #            firstjoints_parampath=path_root+"puppet_l-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet_l-Last.onnx", 
+    #            lastjoints_parampath=path_root+"puppet_l-Last-stat_params.npz")
+    # mtmr1 = ARM(MTMR1, 'MTMR', 
+    #            firstjoints_onnxpath=path_root+"master1_r-First.onnx", 
+    #            firstjoints_parampath=path_root+"master1_r-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1_r-Last.onnx", 
+    #            lastjoints_parampath=path_root+"master1_r-Last-stat_params.npz")
+    # mtmr2 = ARM(MTMR2, 'MTMR-Si',
+    #            firstjoints_onnxpath=path_root+"master2_r-First.onnx", 
+    #            firstjoints_parampath=path_root+"master2_r-First-stat_params.npz", lastjoints_onnxpath=path_root+"master2_r-Last.onnx", 
+    #            lastjoints_parampath=path_root+"master2_r-Last-stat_params.npz")
+    # psm1 = ARM(PSM1, 'PSM1',
+    #           firstjoints_onnxpath=path_root+"puppet_r-First.onnx", 
+    #            firstjoints_parampath=path_root+"puppet_r-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet_r-Last.onnx", 
+    #            lastjoints_parampath=path_root+"puppet_r-Last-stat_params.npz")
+    
+
+    # one console
+    mtml1 = ARM(MTML, 'MTML', 
+               firstjoints_onnxpath=path_root+"master1_l-First.onnx", 
+               firstjoints_parampath=path_root+"master1_l-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1_l-Last.onnx", 
+               lastjoints_parampath=path_root+"master1_l-Last-stat_params.npz")
+    mtml2 = ARM(MTMR, 'MTML-Si',
+               firstjoints_onnxpath=path_root+"master1_r-First.onnx", 
+               firstjoints_parampath=path_root+"master1_r-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1_r-Last.onnx", 
+               lastjoints_parampath=path_root+"master1_r-Last-stat_params.npz")
+    # psm2 = ARM(PSM1, 'PSM1',
+    #           firstjoints_onnxpath=path_root+"puppet_r-First.onnx", 
+    #            firstjoints_parampath=path_root+"puppet_r-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet_r-Last.onnx", 
+    #            lastjoints_parampath=path_root+"puppet_r-Last-stat_params.npz")
+    
+    psm2 = ARM(PSMxiath=path_root+"puppet_l-Last-stat_params.npz")
+
 
     clutch = clutch
     coag = coag
 
 
-    application = teleoperation(mtm1, mtm2, psm, clutch, args.interval,
-                                not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha, beta = args.beta)
+    # application = teleoperation(mtmr1, mtmr2, psm1, clutch, args.interval,
+    #                             not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha)
+    
+    # right hand
+    # application = teleoperation(mtmr1, mtmr2, psm1, clutch, args.interval,
+    #                             not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha)
+
+    application = teleoperation(mtml1, mtml2, psm2, clutch, args.interval,
+                                not args.no_mtm_alignment, operator_present_topic = coag, alpha = args.alpha)
     
     # merge models
-    model_paths = (mtm1.firstmodel.onnx_path,mtm1.lastmodel.onnx_path, mtm2.firstmodel.onnx_path ,mtm2.lastmodel.onnx_path,
-                       psm.firstmodel.onnx_path, psm.lastmodel.onnx_path)
-    model_merger = ModelMerger(model_paths,path_root + "merged_model.onnx")
-    if not os.path.exists(path_root + "merged_model.onnx"):
-        print("Merging models...")
-        model_merger.merge_models()
-        print("Models merged successfully.")
+    merged_name = "mergerd_model.onnx"
+
+    # # right model
+    # model_paths = (mtmr1.firstmodel.onnx_path,mtmr1.lastmodel.onnx_path, mtmr2.firstmodel.onnx_path ,mtmr2.lastmodel.onnx_path,
+    #                    psm1.firstmodel.onnx_path, psm1.lastmodel.onnx_path)
+
+    model_paths = (mtml1.firstmodel.onnx_path,mtml1.lastmodel.onnx_path, mtml2.firstmodel.onnx_path ,mtml2.lastmodel.onnx_path,
+                       psm2.firstmodel.onnx_path, psm2.lastmodel.onnx_path)
+
+    model_merger = ModelMerger(model_paths,path_root + merged_name)
+    print("Merging models...")
+    model_merger.merge_models()
+    print("Models merged successfully.")
 
     # load merged model
-    ort_session = onnxruntime.InferenceSession(path_root + "merged_model.onnx", providers=["CPUExecutionProvider"])
-    model_thread = model(mtm1, mtm2, psm, freq=200)  
+    ort_session = onnxruntime.InferenceSession(path_root + merged_name, providers=["CPUExecutionProvider"])
+    # model_thread = model(mtmr1, mtmr2, psm1, freq=200)   
+    model_thread = model(mtml1, mtml2, psm2, freq=200)  
+
     model_thread.start()
     application.run()
+    
      
     system.power_off()

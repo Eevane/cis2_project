@@ -2,11 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the data from two text files
-file1 = '/home/xle6/dvrk_teleop_data/July_11/MTML_internal.txt'
-file2 = '/home/xle6/dvrk_teleop_data/July_11/MTML_total.txt'
+file1 = '/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_internal.txt'
+file2 = '/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_total.txt'
 
-predicted_force = '/home/xle6/dvrk_teleop_data/July_11/MTML_force.txt'
-measured_force = '/home/xle6/dvrk_teleop_data/July_11/MTML_total_force.txt'
+predicted_force = '/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_force.txt'
+measured_force = '/home/xle6/dvrk_teleop_data/Aug_18/Model_performance/MTMR_CF.txt'
 
 # Load assuming space-separated values
 data1 = np.loadtxt(file1, usecols=(0, 1, 2, 3, 4, 5))
@@ -40,7 +40,7 @@ plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 #plt.show()
 
 
-# Load assuming space-separated values
+#Load assuming space-separated values
 data3 = np.loadtxt(predicted_force, usecols=(0, 1, 2))
 data4 = np.loadtxt(measured_force, usecols=(0, 1, 2))
 
