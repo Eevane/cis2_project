@@ -34,7 +34,7 @@ class teleoperation:
         CLUTCHED = 2
         FOLLOWING = 3
 
-    def __init__(self, ral, mtm1, mtm2, puppet, clutch_topic, run_period, align_mtm, operator_present_topic = "", alpha = 0.5, beta = 0.5):
+    def __init__(self, ral, mtm1, mtm2, puppet, sensor, clutch_topic, run_period, align_mtm, operator_present_topic = "", alpha = 0.5):
         print('Initialzing dvrk_teleoperation for {}, {} and {}'.format(mtm1.name, mtm2.name, puppet.name))
         self.ral = ral
         self.run_period = run_period
@@ -42,10 +42,10 @@ class teleoperation:
         self.master1 = mtm1
         self.master2 = mtm2
         self.puppet = puppet
+        self.sensor = sensor
 
         # dominance factor
         self.alpha = alpha
-        self.beta = beta
 
         self.scale = 0.2
         self.velocity_scale = 0.2
@@ -90,6 +90,8 @@ class teleoperation:
         self.m1_force = []
         self.m2_force = []
         self.puppet_force = []
+        self.puppet_measure_force = []
+        self.sensor_force = []
 
         self.queue_MTML_first3 = numpy.zeros((1, 10, 6))
         self.queue_MTML_last3 = numpy.zeros((1, 10, 6))
@@ -425,6 +427,7 @@ class teleoperation:
         master1_measured_cf = self.master1.body.measured_cf()[0]
         master2_measured_cf = self.master2.body.measured_cf()[0]
         puppet_measured_cf = self.puppet.body.measured_cf()[0]
+        sensor_force = self.sensor.measured_cf()[0]
         """  """
 
         # master1
@@ -443,8 +446,9 @@ class teleoperation:
         puppet_external_f[3:6] *= 0
 
         # force input
-        gamma = 0.6
-        force_goal = 0.2 * (self.beta * master1_external_f + (1 - self.beta) * master2_external_f + gamma * puppet_external_f)
+        gamma = 1.0
+        force_goal = 0.2 * (self.alpha * master1_external_f + (1 - self.alpha) * master2_external_f + gamma * puppet_external_f)
+
         print(f"force_goal: {force_goal}")
         print(f"force_goal type: {type(force_goal[0])}")
         print("")
@@ -573,6 +577,9 @@ class teleoperation:
         self.m1_force.append(master1_external_f.reshape(-1))
         self.m2_force.append(master2_external_f.reshape(-1))
         self.puppet_force.append(puppet_external_f.reshape(-1))
+
+        self.puppet_measure_force.append(puppet_measured_cf.reshape(-1))
+        self.sensor_force.append(puppet_external_f.reshape(-1))
         self.a += 1
 
         if self.a == 4000:
@@ -598,7 +605,9 @@ class teleoperation:
             numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_array_exp.txt', self.y_data_l_expected, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
             numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m1_force.txt', self.m1_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
             numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_m2_force.txt', self.m2_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
-            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/multi_puppet_force.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/puppet_force_external.txt', self.puppet_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/puppet_force_measure.txt', self.puppet_measure_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
+            numpy.savetxt('/home/pshao7/dvrk_python_devel/dataset/sensor_force.txt', self.sensor_force, fmt='%f', delimiter=' ', header='Column1 Column2 Column3', comments='')
 
 
 
@@ -797,6 +806,15 @@ class PSM:
         self.local = self.MeasuredCP(self.ral.create_child('local'),timeout)
         self.jaw = self.Jaw(self.ral.create_child('jaw'), timeout)
 
+
+class Sensor:
+    def __init__(self, ral, name, timeout):
+        self.name = name
+        self.ral = ral.create_child(name)
+        self.utils = crtk.utils(self, self.ral, timeout)
+        self.utils.add_measured_cf()
+
+
     
 
 if __name__ == '__main__':
@@ -823,19 +841,20 @@ if __name__ == '__main__':
     args = parser.parse_args(argv)
 
     ral = crtk.ral('dvrk_python_teleoperation')
-    path_root = "/home/pshao7/dvrk_python_devel/cis2_project/cis2_project/model/training_results/Model_0704/"
-    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval, firstjoints_onnxpath=path_root+"best-master1-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master1-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master1-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master1-strong-Last-stat_params.npz")
+    path_root = "/home/xle6/dvrk_teleop_data/Aug_18/checkpoints/"
+    mtm1 = MTM(ral, args.mtm[0], timeout=20*args.interval, firstjoints_onnxpath=path_root+"master1_l-First.onnx", 
+               firstjoints_parampath=path_root+"master1_l-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1_l-Last.onnx", 
+               lastjoints_parampath=path_root+"master1_l-Last-stat_params.npz")
     
-    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval, firstjoints_onnxpath=path_root+"best-master2-strong-First.onnx", 
-               firstjoints_parampath=path_root+"master2-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-master2-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"master2-strong-Last-stat_params.npz")
+    mtm2 = MTM(ral, args.mtm[1], timeout=20*args.interval, firstjoints_onnxpath=path_root+"master1_r-First.onnx", 
+               firstjoints_parampath=path_root+"master1_r-First-stat_params.npz", lastjoints_onnxpath=path_root+"master1_r-Last.onnx", 
+               lastjoints_parampath=path_root+"master1_r-Last-stat_params.npz")
     
-    psm = PSM(ral, args.psm, timeout=20*args.interval, firstjoints_onnxpath=path_root+"best-puppet-strong-First.onnx", 
-               firstjoints_parampath=path_root+"puppet-strong-First-stat_params.npz", lastjoints_onnxpath=path_root+"best-puppet-strong-Last.onnx", 
-               lastjoints_parampath=path_root+"puppet-strong-Last-stat_params.npz")
-    application = teleoperation(ral, mtm1, mtm2, psm, args.clutch, args.interval,
-                                not args.no_mtm_alignment, operator_present_topic = args.operator, alpha = 0.5, beta = 0.5)
+    psm = PSM(ral, args.psm, timeout=20*args.interval, firstjoints_onnxpath=path_root+"puppet_l-First.onnx", 
+               firstjoints_parampath=path_root+"puppet_l-First-stat_params.npz", lastjoints_onnxpath=path_root+"puppet_l-Last.onnx", 
+               lastjoints_parampath=path_root+"puppet_l-Last-stat_params.npz")
+    sensor = Sensor(ral, name='sensor', timeout=4*args.interval)
+    application = teleoperation(ral, mtm1, mtm2, psm, sensor, args.clutch, args.interval,
+                                not args.no_mtm_alignment, operator_present_topic = args.operator, alpha = 0.5)
      
     ral.spin_and_execute(application.run)
