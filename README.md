@@ -1,5 +1,5 @@
 # cis2_project
-Project: Multilateral Teleoperation based Haptic Training System for the dVRK for EN 601.456 Computer Integrated Surgery II
+Project: Multilateral Teleoperation based Haptic Training System for the dVRK
 
 ## How to Apply Our Code
 This repo contains modified versions of several files from the original [jhu-dVRK](https://github.com/jhu-dvrk) repositories.
